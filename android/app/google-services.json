@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "935115524868",
+    "project_id": "smartcampus-dillu-2026-98765",
+    "storage_bucket": "smartcampus-dillu-2026-98765.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:935115524868:android:1a1b9aa3ad5293e9ef9e51",
+        "android_client_info": {
+          "package_name": "com.example.smartcampus_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwogEHso0sWbHhgO40t4JUekHO4KyVLMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

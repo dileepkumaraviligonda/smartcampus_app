@@ -1,0 +1,32 @@
+name: smartcampus_app
+
+description: A Smart Campus Flutter App
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.7.0
+  firebase_auth: ^6.0.0
+  image_picker: ^1.2.0
+  google_maps_flutter: ^2.17.0
+  supabase_flutter: ^2.3.4
+  file_picker: ^8.1.7
+  google_sign_in: ^6.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
