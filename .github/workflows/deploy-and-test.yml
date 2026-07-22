@@ -55,6 +55,7 @@ jobs:
 
       - name: Prepare GitHub Pages Distribution Directory
         run: |
+          touch build/web/.nojekyll
           mkdir -p build/web/reports/latest
           mkdir -p build/web/reports/history/build-${{ github.run_number }}
           cp E2E_Test_Report_SmartCampus_300.xlsx build/web/reports/latest/
@@ -65,9 +66,18 @@ jobs:
         with:
           path: 'build/web'
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages (Native)
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Deploy to GitHub Pages Branch (Dual Source Compatibility)
+        uses: peaceiris/actions-gh-pages@v3
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
+          publish_branch: gh-pages
+          force_orphan: true
 
       - name: Generate GHA Step Summary
         run: |
