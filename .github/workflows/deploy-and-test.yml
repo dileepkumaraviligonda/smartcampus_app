@@ -43,7 +43,7 @@ jobs:
         run: |
           flutter config --enable-web
           flutter pub get
-          flutter build web --release
+          flutter build web --release --base-href "/smartcampus_app/"
 
       - name: Run Web Security Suite Scan
         run: |
