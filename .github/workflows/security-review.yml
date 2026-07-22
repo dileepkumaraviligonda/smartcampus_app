@@ -2,9 +2,9 @@ name: Security Review & Zero-Critical Gate
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, gh-pages ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, gh-pages ]
   workflow_dispatch:
 
 jobs:

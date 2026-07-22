@@ -2,9 +2,9 @@ name: API Load Testing (100 VUs / 1m)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, gh-pages ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, gh-pages ]
   workflow_dispatch:
 
 jobs:
