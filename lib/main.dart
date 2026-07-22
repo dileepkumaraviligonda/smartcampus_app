@@ -1,4 +1,11 @@
 // lib/main.dart
+// APPIUM_TEST_LABELS:
+// get_started_button, email_field, password_field, google_sign_in_button,
+// sign_in_button, logout_button, raise_issue_fab, chatbot_message_field,
+// send_message_button, nav_dashboard, nav_campus_feed, nav_complaints,
+// nav_placement_portal, nav_notifications, nav_chatbot, nav_my_profile,
+// quick_raise_issue, quick_placement, quick_profiles, quick_notifications,
+// quick_chatbot, quick_my_profile
 // SmartCampus - Full No-Billing Version
 // Features included:
 // Firebase Auth, dark mode, forgot password, edit profile, grievance search/filter,
@@ -17,7 +24,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'firebase_options.dart';
@@ -222,15 +228,17 @@ class SmartLandingPage extends StatelessWidget {
                       ],
                     );
                   }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Spacer(),
-                      _landingText(context, features),
-                      const SizedBox(height: 24),
-                      _landingPreviewCard(),
-                      const Spacer(),
-                    ],
+                  return SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 22),
+                        _landingText(context, features),
+                        const SizedBox(height: 18),
+                        _landingPreviewCard(),
+                        const SizedBox(height: 22),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -292,13 +300,17 @@ class SmartLandingPage extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           height: 56,
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: Semantics(
+            label: 'get_started_button',
+            button: true,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              ),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SmartSignInPage())),
+              child: const Text('Get Started', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
             ),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SmartSignInPage())),
-            child: const Text('Get Started', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           ),
         ),
       ],
@@ -307,7 +319,7 @@ class SmartLandingPage extends StatelessWidget {
 
   Widget _landingPreviewCard() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [Color(0xFF0F172A), Color(0xFF1E293B)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(32),
@@ -327,18 +339,23 @@ class SmartLandingPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.7,
-            physics: const NeverScrollableScrollPhysics(),
-            children: const [
-              _MiniPulseCard(title: 'Students Online', value: '187', icon: Icons.people),
-              _MiniPulseCard(title: 'Placements', value: '05', icon: Icons.work),
-              _MiniPulseCard(title: 'Notifications', value: '12', icon: Icons.notifications),
-              _MiniPulseCard(title: 'Issues Resolved', value: '24', icon: Icons.verified),
+          const Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _MiniPulseCard(title: 'Students Online', value: '187', icon: Icons.people)),
+                  SizedBox(width: 12),
+                  Expanded(child: _MiniPulseCard(title: 'Placements', value: '05', icon: Icons.work)),
+                ],
+              ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: _MiniPulseCard(title: 'Notifications', value: '12', icon: Icons.notifications)),
+                  SizedBox(width: 12),
+                  Expanded(child: _MiniPulseCard(title: 'Issues Resolved', value: '24', icon: Icons.verified)),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -369,7 +386,7 @@ class _MiniPulseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.10),
         borderRadius: BorderRadius.circular(20),
@@ -377,11 +394,12 @@ class _MiniPulseCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: const Color(0xFF06B6D4)),
-          const Spacer(),
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
-          Text(title, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Icon(icon, color: const Color(0xFF06B6D4), size: 18),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(title, style: const TextStyle(color: Colors.white60, fontSize: 10), overflow: TextOverflow.ellipsis, maxLines: 1),
         ],
       ),
     );
@@ -1183,7 +1201,20 @@ class _LoginScreenState extends State<LoginScreen> {
         (route) => false,
       );
     } on fb.FirebaseAuthException catch (e) {
-      snack(context, e.message ?? 'Authentication failed', error: true);
+      String msg = e.message ?? 'Authentication failed';
+      final code = e.code.toLowerCase();
+      if (code == 'invalid-credential' || code == 'invalid-auth-credential' || code == 'wrong-password' || code == 'user-not-found' || code == 'invalid_login_credentials') {
+        msg = isLogin
+            ? 'Incorrect email or password. If you do not have an account yet, please tap "Create Account" below to register.'
+            : 'Invalid authentication credentials provided.';
+      } else if (code == 'email-already-in-use') {
+        msg = 'An account already exists with this email. Please switch to "Sign In".';
+      } else if (code == 'weak-password') {
+        msg = 'Password is too weak. Please use at least 6 characters.';
+      } else if (code == 'invalid-email') {
+        msg = 'Please enter a valid email address.';
+      }
+      snack(context, msg, error: true);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -1427,7 +1458,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _signInCard() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 38),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 38),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
         borderRadius: BorderRadius.circular(34),
@@ -1444,16 +1475,20 @@ class _LoginScreenState extends State<LoginScreen> {
             style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
           ),
           const SizedBox(height: 20),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 58),
-              side: const BorderSide(color: Color(0xFFE2E8F0)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              foregroundColor: const Color(0xFF0F172A),
+          Semantics(
+            label: 'google_sign_in_button',
+            button: true,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 58),
+                side: const BorderSide(color: Color(0xFFE2E8F0)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                foregroundColor: const Color(0xFF0F172A),
+              ),
+              onPressed: loading ? null : signInWithGoogle,
+              icon: const Text('G', style: TextStyle(fontSize: 24, color: Color(0xFF2563EB), fontWeight: FontWeight.w900)),
+              label: const Text('Continue with Google', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             ),
-            onPressed: loading ? null : signInWithGoogle,
-            icon: const Text('G', style: TextStyle(fontSize: 24, color: Color(0xFF2563EB), fontWeight: FontWeight.w900)),
-            label: const Text('Continue with Google', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 22),
           Row(
@@ -1472,10 +1507,14 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Text('Email', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: modernInput('you@example.com', Icons.email_outlined),
+          Semantics(
+            label: 'email_field',
+            textField: true,
+            child: TextField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: modernInput('you@example.com', Icons.email_outlined),
+            ),
           ),
           const SizedBox(height: 16),
           Align(
@@ -1483,23 +1522,40 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Text('Password', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: password,
-            obscureText: obscure,
-            decoration: modernInput('Password', Icons.lock_outline).copyWith(
-              suffixIcon: IconButton(
-                icon: Icon(obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                onPressed: () => setState(() => obscure = !obscure),
+          Semantics(
+            label: 'password_field',
+            textField: true,
+            child: TextField(
+              controller: password,
+              obscureText: obscure,
+              decoration: modernInput('Password', Icons.lock_outline).copyWith(
+                suffixIcon: IconButton(
+                  icon: Icon(obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                  onPressed: () => setState(() => obscure = !obscure),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Checkbox(value: remember, onChanged: (v) => setState(() => remember = v ?? true)),
+              Checkbox(
+                value: remember,
+                onChanged: (v) => setState(() => remember = v ?? true),
+                visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+              ),
+              const SizedBox(width: 4),
               const Text('Remember me'),
               const Spacer(),
-              TextButton(onPressed: forgotPassword, child: const Text('Forgot Password?')),
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: forgotPassword,
+                child: const Text('Forgot Password?'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1646,7 +1702,7 @@ class _MainScreenState extends State<MainScreen> {
 
 // ========================= SAVEETHA PORTAL STYLE HELPERS =========================
 
-PreferredSizeWidget portalTopBar(String title, {required AppUser user}) {
+PreferredSizeWidget portalTopBar(BuildContext context, String title, {required AppUser user}) {
   return AppBar(
     backgroundColor: PortalColors.header,
     foregroundColor: Colors.white,
@@ -1654,9 +1710,11 @@ PreferredSizeWidget portalTopBar(String title, {required AppUser user}) {
     title: Text(title),
     actions: [
       _portalBadge(Icons.notifications_none, '0'),
-      _portalBadge(Icons.mail_outline, '0'),
-      _portalBadge(Icons.calendar_month_outlined, '0'),
-      const SizedBox(width: 12),
+      if (MediaQuery.of(context).size.width > 600) ...[
+        _portalBadge(Icons.mail_outline, '0'),
+        _portalBadge(Icons.calendar_month_outlined, '0'),
+      ],
+      const SizedBox(width: 8),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: supabase
             .from('profiles')
@@ -1685,25 +1743,32 @@ PreferredSizeWidget portalTopBar(String title, {required AppUser user}) {
             mainAxisSize: MainAxisSize.min,
             children: [
               CircleAvatar(
-                radius: 18,
+                radius: 16,
                 backgroundColor: Colors.grey,
                 backgroundImage: photo.trim().isEmpty ? null : NetworkImage(photo.trim()),
                 child: photo.trim().isEmpty
-                    ? const Icon(Icons.person, color: Colors.white, size: 20)
+                    ? const Icon(Icons.person, color: Colors.white, size: 18)
                     : null,
               ),
-              const SizedBox(width: 8),
-              Center(
-                child: Text(
-                  displayName.toUpperCase(),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              if (MediaQuery.of(context).size.width > 600) ...[
+                const SizedBox(width: 8),
+                Center(
+                  child: Text(
+                    displayName.toUpperCase(),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
                 ),
-              ),
+              ],
             ],
           );
         },
       ),
-      IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+      if (MediaQuery.of(context).size.width > 600)
+        Semantics(
+          label: 'logout_button',
+          button: true,
+          child: IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+        ),
       const SizedBox(width: 8),
     ],
   );
@@ -2100,7 +2165,7 @@ class PortalCourseScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: PortalColors.pageBg,
       drawer: portalDrawer(context, user, () {}, null),
-      appBar: portalTopBar('My Course', user: user),
+      appBar: portalTopBar(context, 'My Course', user: user),
       body: ListView(padding: const EdgeInsets.all(28), children: [
         const Text('My Course', style: TextStyle(fontSize: 30, color: PortalColors.textGrey)),
         const SizedBox(height: 18),
@@ -2335,22 +2400,30 @@ class _SmartCampusChatbotScreenState extends State<SmartCampusChatbotScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: msg,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: input('Ask chatbot...', Icons.smart_toy).copyWith(
-                      filled: true,
-                      fillColor: Colors.white,
+                  child: Semantics(
+                    label: 'chatbot_message_field',
+                    textField: true,
+                    child: TextField(
+                      controller: msg,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: input('Ask chatbot...', Icons.smart_toy).copyWith(
+                        filled: true,
+                        fillColor: Colors.white,
+                      ),
+                      onSubmitted: (_) => send(),
                     ),
-                    onSubmitted: (_) => send(),
                   ),
                 ),
                 const SizedBox(width: 8),
-                FloatingActionButton(
-                  backgroundColor: ModernColors.blue,
-                  onPressed: send,
-                  child: const Icon(Icons.send, color: Colors.white),
+                Semantics(
+                  label: 'send_message_button',
+                  button: true,
+                  child: FloatingActionButton(
+                    backgroundColor: ModernColors.blue,
+                    onPressed: send,
+                    child: const Icon(Icons.send, color: Colors.white),
+                  ),
                 ),
               ],
             ),
@@ -2450,18 +2523,37 @@ class LiveCampusPulseStats extends StatelessWidget {
                   builder: (_, issueSnap) {
                     final issues = issueSnap.data ?? [];
                     final resolved = issues.where((g) => isIssueHistoryStatus((g['status'] ?? '').toString())).length;
-                    return GridView.count(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      childAspectRatio: 2.4,
+                    final isWide = MediaQuery.of(context).size.width > 600;
+                    if (isWide) {
+                      return Row(
+                        children: [
+                          Expanded(child: _pulseCard('Students Online', users.length.toString(), Icons.people_alt, ModernColors.cyan)),
+                          const SizedBox(width: 10),
+                          Expanded(child: _pulseCard('Notifications', notifications.length.toString(), Icons.notifications_active, ModernColors.amber)),
+                          const SizedBox(width: 10),
+                          Expanded(child: _pulseCard('Placements', placements.length.toString(), Icons.work, ModernColors.green)),
+                          const SizedBox(width: 10),
+                          Expanded(child: _pulseCard('Resolved Issues', resolved.toString(), Icons.verified, Colors.white)),
+                        ],
+                      );
+                    }
+                    return Column(
                       children: [
-                        _pulseCard('Students Online', users.length.toString(), Icons.people_alt, ModernColors.cyan),
-                        _pulseCard('Notifications', notifications.length.toString(), Icons.notifications_active, ModernColors.amber),
-                        _pulseCard('Placements', placements.length.toString(), Icons.work, ModernColors.green),
-                        _pulseCard('Resolved Issues', resolved.toString(), Icons.verified, Colors.white),
+                        Row(
+                          children: [
+                            Expanded(child: _pulseCard('Students Online', users.length.toString(), Icons.people_alt, ModernColors.cyan)),
+                            const SizedBox(width: 10),
+                            Expanded(child: _pulseCard('Notifications', notifications.length.toString(), Icons.notifications_active, ModernColors.amber)),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(child: _pulseCard('Placements', placements.length.toString(), Icons.work, ModernColors.green)),
+                            const SizedBox(width: 10),
+                            Expanded(child: _pulseCard('Resolved Issues', resolved.toString(), Icons.verified, Colors.white)),
+                          ],
+                        ),
                       ],
                     );
                   },
@@ -2476,14 +2568,14 @@ class LiveCampusPulseStats extends StatelessWidget {
 
   Widget _pulseCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(color: Colors.white.withOpacity(.12), borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white24)),
-      child: Row(children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(width: 10),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10), overflow: TextOverflow.ellipsis, maxLines: 1),
         ])),
       ]),
     );
@@ -2544,7 +2636,7 @@ class CampusStoriesBar extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Icon(Icons.bolt, color: Colors.white),
                   const Spacer(),
-                  Text((s['title'] ?? '').toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text((s['title'] ?? '').toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
                   Text((s['subtitle'] ?? '').toString(), style: const TextStyle(color: Colors.white70, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ]),
               ),
@@ -2649,7 +2741,11 @@ class SmartAssistantShortcuts extends StatelessWidget {
   }
 
   Widget _askTile(String text, IconData icon, VoidCallback onTap) {
-    return ListTile(leading: Icon(icon, color: ModernColors.blue), title: Text(text), trailing: const Icon(Icons.arrow_forward_ios, size: 14), onTap: onTap);
+    return Semantics(
+      label: 'assistant_${text.toLowerCase().replaceAll(' ', '_').replaceAll('?', '').replaceAll('&', 'and')}',
+      button: true,
+      child: ListTile(leading: Icon(icon, color: ModernColors.blue), title: Text(text), trailing: const Icon(Icons.arrow_forward_ios, size: 14), onTap: onTap),
+    );
   }
 }
 
@@ -2718,11 +2814,15 @@ class ModernSmartCampusHome extends StatelessWidget {
       backgroundColor: ModernColors.bg,
       drawer: modernDrawer(context, user, refresh, onTab),
       appBar: modernTopBar(context, user),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: ModernColors.blue,
-        onPressed: () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh)),
-        icon: const Icon(Icons.add),
-        label: const Text('Raise Issue'),
+      floatingActionButton: Semantics(
+        label: 'raise_issue_fab',
+        button: true,
+        child: FloatingActionButton.extended(
+          backgroundColor: ModernColors.blue,
+          onPressed: () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh)),
+          icon: const Icon(Icons.add),
+          label: const Text('Raise Issue'),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -2811,7 +2911,8 @@ PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
     ),
     actions: [
       IconButton(onPressed: () => push(context, PowerNotificationsScreen(user: user)), icon: const Icon(Icons.notifications_none)),
-      IconButton(onPressed: () => push(context, SmartCampusChatbotScreen(user: user)), icon: const Icon(Icons.smart_toy_outlined)),
+      if (MediaQuery.of(context).size.width > 600)
+        IconButton(onPressed: () => push(context, SmartCampusChatbotScreen(user: user)), icon: const Icon(Icons.smart_toy_outlined)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: supabase.from('profiles').stream(primaryKey: ['id']).eq('email', user.email),
         builder: (_, snapshot) {
@@ -2826,15 +2927,22 @@ PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
             padding: const EdgeInsets.only(right: 10),
             child: Row(
               children: [
-                CircleAvatar(backgroundImage: photo.isEmpty ? null : NetworkImage(photo), child: photo.isEmpty ? const Icon(Icons.person) : null),
-                const SizedBox(width: 8),
-                Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundImage: photo.isEmpty ? null : NetworkImage(photo),
+                  child: photo.isEmpty ? const Icon(Icons.person, size: 18) : null,
+                ),
+                if (MediaQuery.of(context).size.width > 600) ...[
+                  const SizedBox(width: 8),
+                  Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                ],
               ],
             ),
           );
         },
       ),
-      IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+      if (MediaQuery.of(context).size.width > 600)
+        IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
     ],
   );
 }
@@ -2843,14 +2951,18 @@ Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
   Widget item(IconData icon, String title, VoidCallback onTap, {bool admin = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        leading: Icon(icon, color: admin ? ModernColors.cyan : Colors.white70),
-        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-        onTap: () {
-          Navigator.pop(context);
-          onTap();
-        },
+      child: Semantics(
+        label: 'nav_${title.toLowerCase().replaceAll(' ', '_').replaceAll('°', '').replaceAll('&', 'and')}',
+        button: true,
+        child: ListTile(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          leading: Icon(icon, color: admin ? ModernColors.cyan : Colors.white70),
+          title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          onTap: () {
+            Navigator.pop(context);
+            onTap();
+          },
+        ),
       ),
     );
   }
@@ -2963,18 +3075,37 @@ class ModernStatsRow extends StatelessWidget {
               stream: supabase.from('placement_posts').stream(primaryKey: ['id']),
               builder: (_, placeSnap) {
                 final placements = placeSnap.data ?? [];
-                return GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 2.7,
+                final isWide = MediaQuery.of(context).size.width > 600;
+                if (isWide) {
+                  return Row(
+                    children: [
+                      Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue)),
+                      const SizedBox(width: 12),
+                      Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber)),
+                      const SizedBox(width: 12),
+                      Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green)),
+                      const SizedBox(width: 12),
+                      Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan)),
+                    ],
+                  );
+                }
+                return Column(
                   children: [
-                    modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue),
-                    modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber),
-                    modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green),
-                    modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan),
+                    Row(
+                      children: [
+                        Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue)),
+                        const SizedBox(width: 12),
+                        Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green)),
+                        const SizedBox(width: 12),
+                        Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan)),
+                      ],
+                    ),
                   ],
                 );
               },
@@ -2988,14 +3119,18 @@ class ModernStatsRow extends StatelessWidget {
 
 Widget modernStat(String label, String value, IconData icon, Color color) {
   return Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12)]),
-    child: Row(children: [
-      Container(width: 44, height: 44, decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: color)),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-        Text(label, style: const TextStyle(color: Colors.grey)),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12)]),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, color: color, size: 18),
+      ),
+      const SizedBox(width: 8),
+      Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11), overflow: TextOverflow.ellipsis, maxLines: 1),
       ])),
     ]),
   );
@@ -3146,17 +3281,21 @@ class ModernQuickActions extends StatelessWidget {
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
         childAspectRatio: 1.8,
-        children: actions.map((a) => InkWell(
-          onTap: a[2] as VoidCallback,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: ModernColors.bg, borderRadius: BorderRadius.circular(16)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(a[0] as IconData, color: ModernColors.blue),
-              const SizedBox(height: 8),
-              Text(a[1] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
-            ]),
+        children: actions.map((a) => Semantics(
+          label: 'quick_${(a[1] as String).toLowerCase().replaceAll(' ', '_').replaceAll('&', 'and')}',
+          button: true,
+          child: InkWell(
+            onTap: a[2] as VoidCallback,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: ModernColors.bg, borderRadius: BorderRadius.circular(16)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(a[0] as IconData, color: ModernColors.blue),
+                const SizedBox(height: 8),
+                Text(a[1] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ]),
+            ),
           ),
         )).toList(),
       ),
@@ -5956,7 +6095,7 @@ class PowerRealtimeHubScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: PortalColors.pageBg,
-      appBar: portalTopBar('Realtime Power Features', user: user),
+      appBar: portalTopBar(context, 'Realtime Power Features', user: user),
       drawer: portalDrawer(context, user, () {}, null),
       body: GridView.count(
         padding: const EdgeInsets.all(22),
@@ -6587,7 +6726,7 @@ class PremiumComplaintHubScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: PortalColors.pageBg,
-      appBar: portalTopBar('Premium Complaint System', user: user),
+      appBar: portalTopBar(context, 'Premium Complaint System', user: user),
       drawer: portalDrawer(context, user, () {}, null),
       body: GridView.builder(
         padding: const EdgeInsets.all(18),
@@ -7023,7 +7162,7 @@ class _RealtimePlacementPortalScreenState extends State<RealtimePlacementPortalS
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: PortalColors.pageBg,
-    appBar: portalTopBar('Realtime Placement Portal', user: widget.user),
+    appBar: portalTopBar(context, 'Realtime Placement Portal', user: widget.user),
     floatingActionButton: AccessControl.isAdminEmail(widget.user.email) ? FloatingActionButton(onPressed: addPost, child: const Icon(Icons.add)) : null,
     body: StreamBuilder<List<Map<String, dynamic>>>(
       stream: supabase.from('placement_posts').stream(primaryKey: ['id']).order('created_at', ascending: false),
@@ -7906,7 +8045,7 @@ PreferredSizeWidget appBar(String title, {bool back = false, BuildContext? conte
     elevation: 0,
     automaticallyImplyLeading: back,
     leading: back && context != null ? IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: () => Navigator.pop(context)) : null,
-    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), overflow: TextOverflow.ellipsis, maxLines: 1),
     actions: actions,
   );
 }
@@ -7983,8 +8122,6 @@ Color statusColor(String status) {
     case 'Cancelled':
       return AppColors.danger;
     case 'Closed':
-      return AppColors.success;
-    case 'Accepted':
       return AppColors.success;
     case 'Assigned':
       return AppColors.primary;

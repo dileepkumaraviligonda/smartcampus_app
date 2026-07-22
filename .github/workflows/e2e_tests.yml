@@ -1,0 +1,185 @@
+name: SmartCampus E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+      - gh-pages
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:    # Allow manual trigger from GitHub UI
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 1: Build & Deploy (Flutter Web → GitHub Pages)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-and-deploy:
+    name: 🏗️ Build Flutter Web
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_url: ${{ steps.set-url.outputs.url }}
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.x"
+          channel: stable
+          cache: true
+
+      - name: 📦 Install Flutter dependencies
+        run: flutter pub get
+
+      - name: 🔨 Build Flutter Web
+        run: |
+          flutter build web --release --base-href /smartcampus_app/
+          echo "Build complete. Files in build/web:"
+          ls build/web/
+
+      - name: 📤 Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-web-build
+          path: build/web/
+          retention-days: 7
+
+      - name: 🌐 Set deployment URL
+        id: set-url
+        run: |
+          echo "url=https://dileepkumaraviligonda.github.io/smartcampus_app" >> "$GITHUB_OUTPUT"
+
+      - name: 🚀 Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
+          publish_branch: gh-pages
+          force_orphan: true
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 2: E2E Tests (Selenium against GitHub Pages)
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: 🧪 Selenium E2E Tests
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tests/requirements.txt
+
+      - name: 📦 Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r tests/requirements.txt
+          echo "Installed packages:"
+          pip list
+
+      - name: 🌐 Setup Chrome Browser
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: 🔍 Verify Chrome version
+        run: |
+          google-chrome --version
+          chromedriver --version || true
+
+      - name: ⏳ Wait for GitHub Pages to be live
+        run: |
+          APP_URL="https://dileepkumaraviligonda.github.io/smartcampus_app"
+          echo "Waiting for $APP_URL to be accessible..."
+          for i in {1..20}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL" --max-time 10 || echo "000")
+            echo "Attempt $i: HTTP Status = $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ App is live!"
+              break
+            fi
+            sleep 15
+          done
+
+      - name: 🧪 Run Selenium E2E Test Suite
+        env:
+          APP_URL: "https://dileepkumaraviligonda.github.io/smartcampus_app"
+          BROWSER: chrome
+          HEADLESS: "true"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          echo "🚀 Starting E2E Test Suite..."
+          cd tests
+          python e2e_tests.py
+        continue-on-error: true   # Don't block pipeline on test failures
+
+      - name: 📊 Upload XLSX Test Report
+        uses: actions/upload-artifact@v4
+        if: always()              # Upload even if tests failed
+        with:
+          name: E2E-Test-Report-${{ github.run_number }}
+          path: |
+            tests/E2E_Test_Report_SmartCampus_*.xlsx
+            tests/test_summary_*.json
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: 📋 Display Test Summary in CI
+        if: always()
+        run: |
+          cd tests
+          # Find the most recent JSON summary
+          SUMMARY=$(ls test_summary_*.json 2>/dev/null | sort | tail -1)
+          if [ -n "$SUMMARY" ]; then
+            echo "=== TEST SUMMARY ==="
+            cat "$SUMMARY" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(f'Target URL : {d[\"target_url\"]}')
+          print(f'Run Date   : {d[\"timestamp\"]}')
+          print(f'Total      : {d[\"total\"]}')
+          print(f'Passed     : {d[\"passed\"]}')
+          print(f'Failed     : {d[\"failed\"]}')
+          print(f'Pass Rate  : {d[\"pass_rate\"]}%')
+          print(f'Status     : {d[\"status\"]}')
+          if d['failures']:
+              print()
+              print('FAILED TESTS:')
+              for f in d['failures']:
+                  print(f'  [{f[\"id\"]}] {f[\"title\"]}')
+                  print(f'     => {f[\"actual\"][:100]}')
+          "
+          else
+            echo "No summary JSON found."
+          fi
+
+      - name: 🏁 Set Job Status Badge
+        if: always()
+        run: |
+          cd tests
+          SUMMARY=$(ls test_summary_*.json 2>/dev/null | sort | tail -1)
+          if [ -n "$SUMMARY" ]; then
+            STATUS=$(python3 -c "import json; d=json.load(open('$SUMMARY')); print(d['status'])")
+            RATE=$(python3 -c "import json; d=json.load(open('$SUMMARY')); print(d['pass_rate'])")
+            echo "Test Status: $STATUS | Pass Rate: $RATE%"
+            if [ "$STATUS" = "FAIL" ]; then
+              echo "::warning title=E2E Tests::Pass rate is ${RATE}% — some tests failed. Check report artifact."
+            else
+              echo "::notice title=E2E Tests::All tests passed! Pass rate: ${RATE}%"
+            fi
+          fi
