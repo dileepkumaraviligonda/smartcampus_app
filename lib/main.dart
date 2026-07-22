@@ -1723,6 +1723,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> signInWithGoogle() async {
     setState(() => loading = true);
 
+    String targetEmail = '';
+    String googleDisplayName = '';
+
     try {
       if (kIsWeb) {
         final provider = fb.GoogleAuthProvider();
@@ -1732,44 +1735,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         try {
           final userCred = await fb.FirebaseAuth.instance.signInWithPopup(provider);
-          final currentUser = userCred.user;
-          final mail = currentUser?.email?.toLowerCase() ?? '';
-
-          if (mail.isNotEmpty) {
-            LocalStore.selectedRole = AccessControl.roleForEmail(mail);
-            LocalStore.currentName = AccessControl.isAdminEmail(mail)
-                ? 'AVILIGONDA DILEEP KUMAR'
-                : (currentUser?.displayName ?? mail.split('@').first);
-
-            try {
-              await supabase.from('app_registered_users').upsert({
-                'email': mail,
-                'full_name': LocalStore.currentName,
-                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                'photo_url': currentUser?.photoURL ?? '',
-                'status': 'active',
-                'last_login': DateTime.now().toIso8601String(),
-              }, onConflict: 'email');
-
-              await supabase.from('profiles').upsert({
-                'email': mail,
-                'full_name': LocalStore.currentName,
-                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                'photo_url': currentUser?.photoURL ?? '',
-                'status': 'active',
-                'last_login': DateTime.now().toIso8601String(),
-              }, onConflict: 'email');
-            } catch (_) {}
-
-            if (!mounted) return;
-            snack(context, 'Signed in with Google ($mail)', error: false);
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const AuthGate()),
-              (route) => false,
-            );
-            return;
-          }
+          targetEmail = userCred.user?.email?.toLowerCase() ?? '';
+          googleDisplayName = userCred.user?.displayName ?? '';
         } catch (_) {
           await _performGoogleAccountSelectionModal();
           return;
@@ -1793,47 +1760,41 @@ class _LoginScreenState extends State<LoginScreen> {
           );
 
           final userCred = await fb.FirebaseAuth.instance.signInWithCredential(credential);
-          final currentUser = userCred.user;
-          final mail = currentUser?.email?.toLowerCase() ?? googleUser.email.toLowerCase();
+          targetEmail = userCred.user?.email?.toLowerCase() ?? googleUser.email.toLowerCase();
+          googleDisplayName = userCred.user?.displayName ?? googleUser.displayName ?? '';
+        } catch (_) {
+          await _performGoogleAccountSelectionModal();
+          return;
+        }
+      }
 
-          if (mail.isNotEmpty) {
-            LocalStore.selectedRole = AccessControl.roleForEmail(mail);
-            LocalStore.currentName = AccessControl.isAdminEmail(mail)
+      if (targetEmail.isNotEmpty) {
+        email.text = targetEmail;
+        if (!isLogin) {
+          await _performGoogleCompleteRegistrationModal(targetEmail, googleDisplayName);
+        } else {
+          bool exists = false;
+          try {
+            final res = await supabase.from('profiles').select('email').eq('email', targetEmail).maybeSingle();
+            if (res != null) exists = true;
+          } catch (_) {}
+
+          if (!exists) {
+            await _performGoogleCompleteRegistrationModal(targetEmail, googleDisplayName);
+          } else {
+            LocalStore.selectedRole = AccessControl.roleForEmail(targetEmail);
+            LocalStore.currentName = AccessControl.isAdminEmail(targetEmail)
                 ? 'AVILIGONDA DILEEP KUMAR'
-                : (googleUser.displayName ?? mail.split('@').first);
-
-            try {
-              await supabase.from('app_registered_users').upsert({
-                'email': mail,
-                'full_name': LocalStore.currentName,
-                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                'photo_url': currentUser?.photoURL ?? '',
-                'status': 'active',
-                'last_login': DateTime.now().toIso8601String(),
-              }, onConflict: 'email');
-
-              await supabase.from('profiles').upsert({
-                'email': mail,
-                'full_name': LocalStore.currentName,
-                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                'photo_url': currentUser?.photoURL ?? '',
-                'status': 'active',
-                'last_login': DateTime.now().toIso8601String(),
-              }, onConflict: 'email');
-            } catch (_) {}
+                : (googleDisplayName.isNotEmpty ? googleDisplayName : targetEmail.split('@').first.toUpperCase());
 
             if (!mounted) return;
-            snack(context, 'Signed in as $mail', error: false);
+            snack(context, 'Signed in with Google ($targetEmail)', error: false);
             Navigator.pushAndRemoveUntil(
               context,
               MaterialPageRoute(builder: (_) => const AuthGate()),
               (route) => false,
             );
-            return;
           }
-        } catch (_) {
-          await _performGoogleAccountSelectionModal();
-          return;
         }
       }
     } catch (_) {
