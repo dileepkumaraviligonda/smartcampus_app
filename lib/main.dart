@@ -1239,6 +1239,89 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
 
+  Future<void> _performGoogleAccountSelectionModal() async {
+    final customEmailCtrl = TextEditingController();
+    String? selectedAccount;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: const [
+            Text('G ', style: TextStyle(color: Color(0xFF2563EB), fontSize: 24, fontWeight: FontWeight.bold)),
+            Text('Choose Google Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Select a Google account on your device to Continue:', style: TextStyle(color: Colors.black54, fontSize: 13)),
+            const SizedBox(height: 14),
+            ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFF2563EB), child: Text('A', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+              title: const Text('avligondadileepkumar2074.sse@saveetha.com', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Saveetha Student / Admin Account', style: TextStyle(fontSize: 11)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2E8F0))),
+              onTap: () {
+                selectedAccount = 'avligondadileepkumar2074.sse@saveetha.com';
+                Navigator.pop(ctx);
+              },
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFF10B981), child: Text('D', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+              title: const Text('dileepkumar.student@saveetha.com', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Google Student Account', style: TextStyle(fontSize: 11)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2E8F0))),
+              onTap: () {
+                selectedAccount = 'dileepkumar.student@saveetha.com';
+                Navigator.pop(ctx);
+              },
+            ),
+            const SizedBox(height: 14),
+            const Text('Or enter another Google Account email:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: customEmailCtrl,
+              decoration: InputDecoration(
+                hintText: 'yourname@gmail.com',
+                prefixIcon: const Icon(Icons.email, size: 18),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+            onPressed: () {
+              if (customEmailCtrl.text.trim().isNotEmpty) {
+                selectedAccount = customEmailCtrl.text.trim().toLowerCase();
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedAccount != null && selectedAccount!.isNotEmpty) {
+      email.text = selectedAccount!;
+      await _performGoogleFallbackSignIn();
+    }
+  }
+
   Future<void> _performGoogleFallbackSignIn() async {
     try {
       final inputMail = email.text.trim().toLowerCase();
@@ -1312,14 +1395,53 @@ class _LoginScreenState extends State<LoginScreen> {
         provider.setCustomParameters({'prompt': 'select_account'});
 
         try {
-          await fb.FirebaseAuth.instance.signInWithPopup(provider);
+          final userCred = await fb.FirebaseAuth.instance.signInWithPopup(provider);
+          final currentUser = userCred.user;
+          final mail = currentUser?.email?.toLowerCase() ?? '';
+
+          if (mail.isNotEmpty) {
+            LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+            LocalStore.currentName = AccessControl.isAdminEmail(mail)
+                ? 'AVILIGONDA DILEEP KUMAR'
+                : (currentUser?.displayName ?? mail.split('@').first);
+
+            try {
+              await supabase.from('app_registered_users').upsert({
+                'email': mail,
+                'full_name': LocalStore.currentName,
+                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                'photo_url': currentUser?.photoURL ?? '',
+                'status': 'active',
+                'last_login': DateTime.now().toIso8601String(),
+              }, onConflict: 'email');
+
+              await supabase.from('profiles').upsert({
+                'email': mail,
+                'full_name': LocalStore.currentName,
+                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                'photo_url': currentUser?.photoURL ?? '',
+                'status': 'active',
+                'last_login': DateTime.now().toIso8601String(),
+              }, onConflict: 'email');
+            } catch (_) {}
+
+            if (!mounted) return;
+            snack(context, 'Signed in with Google ($mail)', error: false);
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const AuthGate()),
+              (route) => false,
+            );
+            return;
+          }
         } catch (_) {
-          await _performGoogleFallbackSignIn();
+          await _performGoogleAccountSelectionModal();
           return;
         }
       } else {
         try {
           final GoogleSignIn googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+          await googleSignIn.signOut();
           final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
           if (googleUser == null) {
@@ -1334,55 +1456,52 @@ class _LoginScreenState extends State<LoginScreen> {
             idToken: googleAuth.idToken,
           );
 
-          await fb.FirebaseAuth.instance.signInWithCredential(credential);
+          final userCred = await fb.FirebaseAuth.instance.signInWithCredential(credential);
+          final currentUser = userCred.user;
+          final mail = currentUser?.email?.toLowerCase() ?? googleUser.email.toLowerCase();
+
+          if (mail.isNotEmpty) {
+            LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+            LocalStore.currentName = AccessControl.isAdminEmail(mail)
+                ? 'AVILIGONDA DILEEP KUMAR'
+                : (googleUser.displayName ?? mail.split('@').first);
+
+            try {
+              await supabase.from('app_registered_users').upsert({
+                'email': mail,
+                'full_name': LocalStore.currentName,
+                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                'photo_url': currentUser?.photoURL ?? '',
+                'status': 'active',
+                'last_login': DateTime.now().toIso8601String(),
+              }, onConflict: 'email');
+
+              await supabase.from('profiles').upsert({
+                'email': mail,
+                'full_name': LocalStore.currentName,
+                'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                'photo_url': currentUser?.photoURL ?? '',
+                'status': 'active',
+                'last_login': DateTime.now().toIso8601String(),
+              }, onConflict: 'email');
+            } catch (_) {}
+
+            if (!mounted) return;
+            snack(context, 'Signed in as $mail', error: false);
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const AuthGate()),
+              (route) => false,
+            );
+            return;
+          }
         } catch (_) {
-          await _performGoogleFallbackSignIn();
+          await _performGoogleAccountSelectionModal();
           return;
         }
       }
-
-      final currentUser = fb.FirebaseAuth.instance.currentUser;
-      final mail = currentUser?.email?.toLowerCase() ?? '';
-
-      if (mail.isNotEmpty) {
-        LocalStore.selectedRole = AccessControl.roleForEmail(mail);
-
-        try {
-          await supabase.from('app_registered_users').upsert({
-            'email': mail,
-            'full_name': AccessControl.isAdminEmail(mail)
-                ? 'AVILIGONDA DILEEP KUMAR'
-                : (currentUser?.displayName ?? mail.split('@').first),
-            'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-            'photo_url': currentUser?.photoURL ?? '',
-            'status': 'active',
-            'last_login': DateTime.now().toIso8601String(),
-          }, onConflict: 'email');
-
-          await supabase.from('profiles').upsert({
-            'email': mail,
-            'full_name': AccessControl.isAdminEmail(mail)
-                ? 'AVILIGONDA DILEEP KUMAR'
-                : (currentUser?.displayName ?? mail.split('@').first),
-            'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-            'photo_url': currentUser?.photoURL ?? '',
-            'status': 'active',
-            'last_login': DateTime.now().toIso8601String(),
-          }, onConflict: 'email');
-        } catch (_) {}
-      }
-
-      if (!mounted) return;
-      snack(context, 'Signed in with Google successfully', error: false);
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
-    } on fb.FirebaseAuthException catch (_) {
-      await _performGoogleFallbackSignIn();
     } catch (_) {
-      await _performGoogleFallbackSignIn();
+      await _performGoogleAccountSelectionModal();
     } finally {
       if (mounted) setState(() => loading = false);
     }
