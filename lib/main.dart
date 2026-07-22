@@ -1843,13 +1843,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    email.dispose();
-    password.dispose();
-    super.dispose();
-  }
-
   InputDecoration modernInput(String hint, IconData icon) {
     return InputDecoration(
       hintText: hint,
