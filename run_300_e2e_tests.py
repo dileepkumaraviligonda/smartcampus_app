@@ -18,9 +18,6 @@ def find_free_port():
     port = s.getsockname()[1]
     s.close()
     return port
-
-DIRECTORY = os.path.join(os.getcwd(), "build", "web")
-
 def wait_for_server(port, timeout=15):
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -32,15 +29,16 @@ def wait_for_server(port, timeout=15):
     return False
 
 def main():
-    if not os.path.exists(DIRECTORY):
-        print(f"[BUILD] Web directory '{DIRECTORY}' not found. Building Flutter web app...")
-        subprocess.run(["flutter", "build", "web"], shell=True, check=True)
-        print("[BUILD] Flutter web build completed.")
+    target_dir = os.path.join(os.getcwd(), "build", "web")
+    if not os.path.exists(target_dir):
+        target_dir = os.path.join(os.getcwd(), "docs")
+    if not os.path.exists(target_dir):
+        target_dir = os.getcwd()
 
     port = find_free_port()
-    print(f"[SERVER] Starting local web server on http://localhost:{port}")
+    print(f"[SERVER] Starting local web server serving '{target_dir}' on http://localhost:{port}")
     server_process = subprocess.Popen(
-        [sys.executable, "-m", "http.server", str(port), "--directory", DIRECTORY],
+        [sys.executable, "-m", "http.server", str(port), "--directory", target_dir],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
