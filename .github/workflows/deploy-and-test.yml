@@ -59,6 +59,8 @@ jobs:
           mkdir -p docs
           cp -r build/web/* docs/
           touch docs/.nojekyll
+          cp -r build/web/* .
+          touch .nojekyll
           mkdir -p build/web/reports/latest
           mkdir -p build/web/reports/history/build-${{ github.run_number }}
           cp E2E_Test_Report_SmartCampus_300.xlsx build/web/reports/latest/
