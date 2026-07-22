@@ -1656,7 +1656,6 @@ class _LoginScreenState extends State<LoginScreen> {
       email.text = selectedAccount!;
       await _performGoogleCompleteRegistrationModal(selectedAccount!, selectedAccount!.split('@').first);
     }
-  }  }
   }
 
   Future<void> _performGoogleFallbackSignIn() async {
