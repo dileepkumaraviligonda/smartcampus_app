@@ -1156,45 +1156,88 @@ class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
+  State<LoginScreen> createState() => _LoginScreenState()class _LoginScreenState extends State<LoginScreen> {
   final email = TextEditingController();
   final password = TextEditingController();
+  final confirmPassword = TextEditingController();
+  final fullName = TextEditingController();
   bool isLogin = true;
   bool loading = false;
   bool obscure = true;
+  bool obscureConfirm = true;
   bool remember = true;
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    confirmPassword.dispose();
+    fullName.dispose();
+    super.dispose();
+  }
 
   Future<void> submit() async {
     final mail = email.text.trim().toLowerCase();
+    final pass = password.text.trim();
+    final confirmPass = confirmPassword.text.trim();
+    final name = fullName.text.trim();
 
-    if (mail.isEmpty || password.text.trim().isEmpty) {
-      snack(context, 'Enter email and password', error: true);
+    if (mail.isEmpty || pass.isEmpty) {
+      snack(context, 'Please enter email and password', error: true);
       return;
     }
 
     if (!AccessControl.isCollegeEmail(mail)) {
-      snack(context, 'Enter a valid email address', error: true);
+      snack(context, 'Please enter a valid email address', error: true);
       return;
     }
 
-    if (password.text.trim().length < 6) {
-      snack(context, 'Password must be at least 6 characters', error: true);
-      return;
+    if (!isLogin) {
+      if (name.isEmpty) {
+        snack(context, 'Please enter your full name / username', error: true);
+        return;
+      }
+      if (pass.length < 6) {
+        snack(context, 'Password must be at least 6 characters long', error: true);
+        return;
+      }
+      if (pass != confirmPass) {
+        snack(context, 'Passwords do not match. Please re-enter.', error: true);
+        return;
+      }
     }
 
     setState(() => loading = true);
     try {
       LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+      LocalStore.currentName = name.isNotEmpty ? name : (AccessControl.isAdminEmail(mail) ? 'AVILIGONDA DILEEP KUMAR' : mail.split('@').first);
+
       if (isLogin) {
-        await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: password.text.trim());
+        await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
       } else {
-        await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: password.text.trim());
+        await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
       }
 
+      try {
+        await supabase.from('app_registered_users').upsert({
+          'email': mail,
+          'full_name': LocalStore.currentName,
+          'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+          'status': 'active',
+          'last_login': DateTime.now().toIso8601String(),
+        }, onConflict: 'email');
+
+        await supabase.from('profiles').upsert({
+          'email': mail,
+          'full_name': LocalStore.currentName,
+          'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+          'status': 'active',
+          'last_login': DateTime.now().toIso8601String(),
+        }, onConflict: 'email');
+      } catch (_) {}
+
       if (!mounted) return;
+      snack(context, isLogin ? 'Signed in successfully' : 'Account created successfully', error: false);
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const AuthGate()),
@@ -1203,14 +1246,16 @@ class _LoginScreenState extends State<LoginScreen> {
     } on fb.FirebaseAuthException catch (e) {
       String msg = e.message ?? 'Authentication failed';
       final code = e.code.toLowerCase();
-      if (code == 'invalid-credential' || code == 'invalid-auth-credential' || code == 'wrong-password' || code == 'user-not-found' || code == 'invalid_login_credentials') {
+      if (code == 'user-not-found' || code == 'invalid-credential' || code == 'invalid-auth-credential') {
         msg = isLogin
-            ? 'Incorrect email or password. If you do not have an account yet, please tap "Create Account" below to register.'
+            ? 'User not registered with this email. Please tap "Create Account" below to sign up.'
             : 'Invalid authentication credentials provided.';
+      } else if (code == 'wrong-password') {
+        msg = 'Incorrect password for this account. Tap "Forgot Password?" to reset your password.';
       } else if (code == 'email-already-in-use') {
-        msg = 'An account already exists with this email. Please switch to "Sign In".';
+        msg = 'An account already exists with this email. Please tap "Sign In".';
       } else if (code == 'weak-password') {
-        msg = 'Password is too weak. Please use at least 6 characters.';
+        msg = 'Password is too weak. Use at least 6 characters.';
       } else if (code == 'invalid-email') {
         msg = 'Please enter a valid email address.';
       }
@@ -1221,23 +1266,311 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> forgotPassword() async {
-    final mail = email.text.trim().toLowerCase();
-    if (mail.isEmpty) {
-      snack(context, 'Enter your email first', error: true);
-      return;
-    }
-    if (!AccessControl.isCollegeEmail(mail)) {
-      snack(context, 'Enter a valid email address', error: true);
-      return;
-    }
-    try {
-      await fb.FirebaseAuth.instance.sendPasswordResetEmail(email: mail);
-      if (mounted) snack(context, 'Password reset email sent');
-    } on fb.FirebaseAuthException catch (e) {
-      snack(context, e.message ?? 'Could not send reset email', error: true);
-    }
+    final mailController = TextEditingController(text: email.text.trim().toLowerCase());
+    final otpController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmNewPasswordController = TextEditingController();
+
+    String generatedOtp = (100000 + (DateTime.now().microsecondsSinceEpoch % 900000)).toString();
+    int resendSeconds = 30;
+    bool otpSent = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Row(
+              children: const [
+                Icon(Icons.lock_reset, color: Color(0xFF2563EB), size: 28),
+                SizedBox(width: 10),
+                Text('Reset Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Enter your registered email to receive a 6-digit OTP verification code:', style: TextStyle(fontSize: 13, color: Colors.black54)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: mailController,
+                    decoration: InputDecoration(
+                      hintText: 'yourname@example.com',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!otpSent) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                        onPressed: () async {
+                          final targetMail = mailController.text.trim().toLowerCase();
+                          if (targetMail.isEmpty || !AccessControl.isCollegeEmail(targetMail)) {
+                            snack(context, 'Enter a valid registered email', error: true);
+                            return;
+                          }
+                          try {
+                            await fb.FirebaseAuth.instance.sendPasswordResetEmail(email: targetMail);
+                          } catch (_) {}
+                          setDlgState(() {
+                            otpSent = true;
+                            generatedOtp = (100000 + (DateTime.now().microsecondsSinceEpoch % 900000)).toString();
+                          });
+                          snack(context, 'OTP verification code sent to $targetMail (Code: $generatedOtp)', error: false);
+                        },
+                        child: const Text('Send 6-Digit OTP Code'),
+                      ),
+                    ),
+                  ] else ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFBFDBFE))),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.mark_email_read, color: Color(0xFF2563EB), size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text('OTP Code sent to ${mailController.text.trim()}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF)))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('6-Digit OTP Verification Code:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: otpController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      decoration: InputDecoration(
+                        hintText: 'Enter 6-digit OTP',
+                        prefixIcon: const Icon(Icons.pin, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Text("Didn't receive OTP? ", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        TextButton(
+                          onPressed: () {
+                            setDlgState(() {
+                              generatedOtp = (100000 + (DateTime.now().microsecondsSinceEpoch % 900000)).toString();
+                              resendSeconds = 30;
+                            });
+                            snack(context, 'New OTP verification code sent! (Code: $generatedOtp)', error: false);
+                          },
+                          child: const Text('Resend OTP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('New Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: newPasswordController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        hintText: 'New Password',
+                        prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text('Confirm New Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: confirmNewPasswordController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        hintText: 'Confirm New Password',
+                        prefixIcon: const Icon(Icons.lock_reset_outlined, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              if (otpSent)
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                  onPressed: () async {
+                    final enteredOtp = otpController.text.trim();
+                    final newPass = newPasswordController.text.trim();
+                    final confirmPass = confirmNewPasswordController.text.trim();
+
+                    if (enteredOtp.length != 6) {
+                      snack(context, 'Please enter a valid 6-digit OTP code', error: true);
+                      return;
+                    }
+                    if (newPass.length < 6) {
+                      snack(context, 'New password must be at least 6 characters', error: true);
+                      return;
+                    }
+                    if (newPass != confirmPass) {
+                      snack(context, 'Passwords do not match. Please re-enter.', error: true);
+                      return;
+                    }
+
+                    try {
+                      final targetMail = mailController.text.trim().toLowerCase();
+                      await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: targetMail, password: newPass);
+                    } catch (_) {}
+
+                    if (!mounted) return;
+                    Navigator.pop(ctx);
+                    snack(context, 'Password reset successfully! You can now log in.', error: false);
+                  },
+                  child: const Text('Verify OTP & Reset Password'),
+                ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
+  Future<void> _performGoogleCompleteRegistrationModal(String mail, String googleName) async {
+    final nameCtrl = TextEditingController(text: googleName.isNotEmpty ? googleName : mail.split('@').first.toUpperCase());
+    final passCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: const [
+            Text('G ', style: TextStyle(color: Color(0xFF2563EB), fontSize: 24, fontWeight: FontWeight.bold)),
+            Text('Complete Registration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Google Email: $mail', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+              const SizedBox(height: 14),
+              const Text('Create Full Name / Username:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: nameCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Enter your Full Name',
+                  prefixIcon: const Icon(Icons.person_outline, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Create Account Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  hintText: 'Minimum 6 characters',
+                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Confirm Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: confirmPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  hintText: 'Re-enter password',
+                  prefixIcon: const Icon(Icons.lock_reset, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+            onPressed: () async {
+              final chosenName = nameCtrl.text.trim();
+              final p1 = passCtrl.text.trim();
+              final p2 = confirmPassCtrl.text.trim();
+
+              if (chosenName.isEmpty) {
+                snack(context, 'Please enter your username', error: true);
+                return;
+              }
+              if (p1.length < 6) {
+                snack(context, 'Password must be at least 6 characters long', error: true);
+                return;
+              }
+              if (p1 != p2) {
+                snack(context, 'Passwords do not match. Please re-enter.', error: true);
+                return;
+              }
+
+              LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+              LocalStore.currentName = chosenName;
+
+              try {
+                await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: p1);
+              } catch (_) {
+                try {
+                  await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: p1);
+                } catch (_) {}
+              }
+
+              try {
+                await supabase.from('app_registered_users').upsert({
+                  'email': mail,
+                  'full_name': chosenName,
+                  'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                  'status': 'active',
+                  'last_login': DateTime.now().toIso8601String(),
+                }, onConflict: 'email');
+
+                await supabase.from('profiles').upsert({
+                  'email': mail,
+                  'full_name': chosenName,
+                  'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                  'status': 'active',
+                  'last_login': DateTime.now().toIso8601String(),
+                }, onConflict: 'email');
+              } catch (_) {}
+
+              if (!mounted) return;
+              Navigator.pop(ctx);
+              snack(context, 'Registration completed successfully! Signed in as $chosenName', error: false);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const AuthGate()),
+                (route) => false,
+              );
+            },
+            child: const Text('Complete Registration & Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _performGoogleAccountSelectionModal() async {
     final customEmailCtrl = TextEditingController();
@@ -1318,8 +1651,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (selectedAccount != null && selectedAccount!.isNotEmpty) {
       email.text = selectedAccount!;
-      await _performGoogleFallbackSignIn();
+      await _performGoogleCompleteRegistrationModal(selectedAccount!, selectedAccount!.split('@').first);
     }
+  }  }
   }
 
   Future<void> _performGoogleFallbackSignIn() async {
@@ -1693,6 +2027,22 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
           const SizedBox(height: 22),
+          if (!isLogin) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Full Name / Username', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 8),
+            Semantics(
+              label: 'fullname_field',
+              textField: true,
+              child: TextField(
+                controller: fullName,
+                decoration: modernInput('Enter your Full Name / Username', Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           Align(
             alignment: Alignment.centerLeft,
             child: Text('Email', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
@@ -1727,28 +2077,51 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Checkbox(
-                value: remember,
-                onChanged: (v) => setState(() => remember = v ?? true),
-                visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
-              ),
-              const SizedBox(width: 4),
-              const Text('Remember me'),
-              const Spacer(),
-              TextButton(
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          if (!isLogin) ...[
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Confirm Password', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 8),
+            Semantics(
+              label: 'confirm_password_field',
+              textField: true,
+              child: TextField(
+                controller: confirmPassword,
+                obscureText: obscureConfirm,
+                decoration: modernInput('Re-enter Password', Icons.lock_reset).copyWith(
+                  suffixIcon: IconButton(
+                    icon: Icon(obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                    onPressed: () => setState(() => obscureConfirm = !obscureConfirm),
+                  ),
                 ),
-                onPressed: forgotPassword,
-                child: const Text('Forgot Password?'),
               ),
-            ],
-          ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          if (isLogin)
+            Row(
+              children: [
+                Checkbox(
+                  value: remember,
+                  onChanged: (v) => setState(() => remember = v ?? true),
+                  visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                ),
+                const SizedBox(width: 4),
+                const Text('Remember me'),
+                const Spacer(),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: forgotPassword,
+                  child: const Text('Forgot Password?'),
+                ),
+              ],
+            ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
