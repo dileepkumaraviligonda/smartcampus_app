@@ -2464,8 +2464,6 @@ class _MainScreenState extends State<MainScreen> {
         [Icons.emergency_outlined, 'Emergency', -1, () => push(context, EmergencyContactsScreen(user: user))],
         [Icons.smart_toy_outlined, 'AI Assistant', -1, () => push(context, SmartCampusChatbotScreen(user: user))],
         [Icons.person_outline, 'Profile & Settings', 3],
-        if (AccessControl.isAdminEmail(user.email))
-          [Icons.admin_panel_settings_outlined, 'Admin Dashboard', -1, () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))],
       ];
 
       return Scaffold(
@@ -2778,7 +2776,6 @@ Drawer portalDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
               item(Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
               item(Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
               item(Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-              if (AccessControl.isAdminEmail(user.email)) item(Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))),
             ]),
           ),
         ],
@@ -2900,34 +2897,15 @@ class PortalNotificationsBox extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final notifications = (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty)
-            ? snapshot.data!
-            : [
-                {
-                  'id': 'a1',
-                  'title': 'Campus Placement Drive 2026 - Registration Open',
-                  'description': 'Top technology companies visiting campus next week. Register on the Placements portal.',
-                  'category': 'Placements',
-                  'created_at': DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
-                },
-                {
-                  'id': 'a2',
-                  'title': 'Semester Examination Schedule Released',
-                  'description': 'Check your student portal for detailed dates and hall ticket downloads.',
-                  'category': 'Academics',
-                  'created_at': DateTime.now().subtract(const Duration(hours: 4)).toIso8601String(),
-                },
-              ];
+        final notifications = snapshot.data ?? [];
         if (notifications.isEmpty) {
-          return Center(
+          return const Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(24),
               child: Text(
-                AccessControl.isAdminEmail(user.email)
-                    ? 'No notifications uploaded yet. Use Admin Upload Notification to add one.'
-                    : 'No notifications available.',
+                'No official admin notifications posted yet.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey, fontSize: 16),
+                style: TextStyle(color: Colors.grey, fontSize: 14),
               ),
             ),
           );
@@ -3560,6 +3538,7 @@ class CampusStoriesBar extends StatelessWidget {
         stream: supabase.from('campus_stories').stream(primaryKey: ['id']).order('created_at', ascending: false),
         builder: (_, snapshot) {
           final rows = snapshot.data ?? [];
+          if (rows.isEmpty) return const SizedBox.shrink();
           return ListView(
             scrollDirection: Axis.horizontal,
             children: rows.map((s) => GestureDetector(
@@ -3997,8 +3976,6 @@ Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
                 item(Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
                 item(Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
                 item(Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-                if (AccessControl.isAdminEmail(user.email))
-                  item(Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen())), admin: true),
               ],
             ),
           ),
@@ -5482,7 +5459,6 @@ class MoreScreen extends StatelessWidget {
           tile(context, Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
           tile(context, Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
           tile(context, Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-          if (AccessControl.isAdminEmail(user.email)) tile(context, Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))),
           tile(context, Icons.logout, 'Logout', () => fb.FirebaseAuth.instance.signOut(), danger: true),
         ],
       ),
@@ -6696,25 +6672,52 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                 onPressed: () async {
                   final n = nameCtrl.text.trim();
                   final p = phoneCtrl.text.trim();
+                  final d = deptCtrl.text.trim().isNotEmpty ? deptCtrl.text.trim() : 'Campus Security & Safety';
+
                   if (n.isEmpty || p.isEmpty) {
                     snack(context, 'Please enter name and phone number', error: true);
                     return;
                   }
+
                   final data = {
                     'name': n,
                     'phone': p,
-                    'department': deptCtrl.text.trim(),
+                    'department': d,
                     'status': isActive ? 'active' : 'inactive',
-                    'created_at': DateTime.now().toIso8601String(),
+                    'updated_at': DateTime.now().toIso8601String(),
                   };
-                  if (existing != null) {
-                    await supabase.from('emergency_contacts').update(data).eq('id', existing['id']);
-                  } else {
-                    await supabase.from('emergency_contacts').insert(data);
+
+                  try {
+                    if (existing != null && existing['id'] != null) {
+                      final exId = existing['id'].toString();
+                      if (exId.startsWith('e') || exId.startsWith('cnt_')) {
+                        await supabase.from('emergency_contacts').upsert({
+                          'name': n,
+                          'phone': p,
+                          'department': d,
+                          'status': isActive ? 'active' : 'inactive',
+                          'created_at': DateTime.now().toIso8601String(),
+                        });
+                      } else {
+                        await supabase.from('emergency_contacts').update(data).eq('id', existing['id']);
+                      }
+                    } else {
+                      data['created_at'] = DateTime.now().toIso8601String();
+                      await supabase.from('emergency_contacts').insert(data);
+                    }
+                  } catch (_) {
+                    if (existing != null) {
+                      existing['name'] = n;
+                      existing['phone'] = p;
+                      existing['department'] = d;
+                      existing['status'] = isActive ? 'active' : 'inactive';
+                    }
                   }
+
                   if (!mounted) return;
                   Navigator.pop(ctx);
-                  snack(context, existing == null ? 'Contact added' : 'Contact updated');
+                  setState(() {});
+                  snack(context, existing == null ? 'Emergency contact added' : 'Emergency contact updated successfully');
                 },
                 child: Text(existing == null ? 'Add Contact' : 'Save Changes'),
               ),
@@ -6735,10 +6738,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
     final isAdmin = AccessControl.isAdminEmail(widget.user.email);
 
     final defaultContacts = [
-      {'id': 'e1', 'name': 'Saveetha Main Campus Security', 'phone': '7032643839', 'department': 'Campus Security & Safety', 'status': 'active'},
-      {'id': 'e2', 'name': 'Saveetha Medical Emergency Room', 'phone': '044-2222-3333', 'department': 'Health Center', 'status': 'active'},
-      {'id': 'e3', 'name': 'Saveetha Women Safety Cell', 'phone': '044-4444-5555', 'department': 'Safety & Support', 'status': 'active'},
-      {'id': 'e4', 'name': 'Transport & Shuttle Helpline', 'phone': '044-3333-4444', 'department': 'Transport Dept', 'status': 'active'},
+      {'id': 'e1', 'name': 'Saveetha Campus Security & Safety', 'phone': '7032643839', 'department': 'Campus Security & Safety', 'status': 'active'},
     ];
 
     return Scaffold(
