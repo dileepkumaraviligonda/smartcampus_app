@@ -3962,6 +3962,25 @@ Widget _myActiveComplaintsCard(BuildContext context, AppUser user, VoidCallback 
   );
 }
 
+Future<void> performAppLogout(BuildContext context) async {
+  LocalStore.activeUserEmail.value = null;
+  LocalStore.lastLoggedInEmail = null;
+  try {
+    await fb.FirebaseAuth.instance.signOut();
+  } catch (_) {}
+  try {
+    final GoogleSignIn googleSignIn = GoogleSignIn();
+    await googleSignIn.signOut();
+  } catch (_) {}
+  if (context.mounted) {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const AuthGate()),
+      (route) => false,
+    );
+  }
+}
+
 PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
   return AppBar(
     backgroundColor: Colors.white,
@@ -4007,14 +4026,18 @@ PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
             );
           },
         ),
-        IconButton(icon: const Icon(Icons.logout), onPressed: () => fb.FirebaseAuth.instance.signOut()),
       ],
+      IconButton(
+        icon: const Icon(Icons.logout, color: Colors.redAccent),
+        onPressed: () => performAppLogout(context),
+        tooltip: 'Logout',
+      ),
     ],
   );
 }
 
 Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, ValueChanged<int> onTab) {
-  Widget item(IconData icon, String title, VoidCallback onTap, {bool admin = false}) {
+  Widget item(IconData icon, String title, VoidCallback onTap, {bool admin = false, bool danger = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       child: Semantics(
@@ -4022,8 +4045,8 @@ Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
         button: true,
         child: ListTile(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          leading: Icon(icon, color: admin ? ModernColors.cyan : Colors.white70),
-          title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          leading: Icon(icon, color: danger ? Colors.redAccent : (admin ? ModernColors.cyan : Colors.white70)),
+          title: Text(title, style: TextStyle(color: danger ? Colors.redAccent : Colors.white, fontWeight: FontWeight.w500)),
           onTap: () {
             Navigator.pop(context);
             onTap();
@@ -4074,6 +4097,7 @@ Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
                 item(Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
                 item(Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
                 item(Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
+                item(Icons.logout, 'Logout', () => performAppLogout(context), danger: true),
               ],
             ),
           ),
