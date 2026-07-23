@@ -42,6 +42,8 @@ Future<void> main() async {
       anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12ZnZmbHJqd213bHp6amdydHN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2MDk2NjAsImV4cCI6MjA5MzE4NTY2MH0.YLYhumUwwuR6_FbilfvMioTJA7OhxhquMDrcrcysxcs',
     );
 
+    RealtimeSyncEngine.init();
+
     runApp(const SmartCampusApp());
   } catch (e) {
     runApp(FirebaseErrorApp(error: e.toString()));
@@ -49,6 +51,133 @@ Future<void> main() async {
 }
 
 final supabase = Supabase.instance.client;
+
+class RealtimeSyncEngine {
+  static final ValueNotifier<List<Map<String, dynamic>>> grievances = ValueNotifier([]);
+  static final ValueNotifier<List<Map<String, dynamic>>> bookings = ValueNotifier([]);
+  static final ValueNotifier<List<Map<String, dynamic>>> announcements = ValueNotifier([]);
+  static final ValueNotifier<List<Map<String, dynamic>>> timetables = ValueNotifier([]);
+  static final ValueNotifier<List<Map<String, dynamic>>> placements = ValueNotifier([]);
+
+  static Timer? _timer;
+  static bool _initialized = false;
+
+  static void init() {
+    if (_initialized) return;
+    _initialized = true;
+    _setupRealtimeStreams();
+    _fetchLatestSnapshots();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _fetchLatestSnapshots());
+  }
+
+  static void _setupRealtimeStreams() {
+    try {
+      supabase.from('grievances').stream(primaryKey: ['id']).listen((data) {
+        if (data.isNotEmpty) _mergeGrievances(data);
+      });
+    } catch (_) {}
+
+    try {
+      supabase.from('bookings').stream(primaryKey: ['id']).listen((data) {
+        if (data.isNotEmpty) _mergeBookings(data);
+      });
+    } catch (_) {}
+
+    try {
+      supabase.from('announcements').stream(primaryKey: ['id']).listen((data) {
+        if (data.isNotEmpty) _mergeAnnouncements(data);
+      });
+    } catch (_) {}
+
+    try {
+      supabase.from('timetables').stream(primaryKey: ['id']).listen((data) {
+        if (data.isNotEmpty) _mergeTimetables(data);
+      });
+    } catch (_) {}
+
+    try {
+      supabase.from('placement_posts').stream(primaryKey: ['id']).listen((data) {
+        if (data.isNotEmpty) _mergePlacements(data);
+      });
+    } catch (_) {}
+  }
+
+  static Future<void> _fetchLatestSnapshots() async {
+    try {
+      final data = await supabase.from('grievances').select('*').order('created_at', ascending: false);
+      if (data != null) _mergeGrievances(List<Map<String, dynamic>>.from(data));
+    } catch (_) {}
+
+    try {
+      final data = await supabase.from('bookings').select('*').order('created_at', ascending: false);
+      if (data != null) _mergeBookings(List<Map<String, dynamic>>.from(data));
+    } catch (_) {}
+
+    try {
+      final data = await supabase.from('announcements').select('*').order('created_at', ascending: false);
+      if (data != null) _mergeAnnouncements(List<Map<String, dynamic>>.from(data));
+    } catch (_) {}
+
+    try {
+      final data = await supabase.from('timetables').select('*').order('created_at', ascending: false);
+      if (data != null) _mergeTimetables(List<Map<String, dynamic>>.from(data));
+    } catch (_) {}
+
+    try {
+      final data = await supabase.from('placement_posts').select('*').order('created_at', ascending: false);
+      if (data != null) _mergePlacements(List<Map<String, dynamic>>.from(data));
+    } catch (_) {}
+  }
+
+  static void _mergeGrievances(List<Map<String, dynamic>> items) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final item in [...LocalStore.userSubmittedGrievances, ...items]) {
+      final k = (item['id'] ?? item['title'] ?? '').toString();
+      if (k.isNotEmpty) map[k] = item;
+    }
+    grievances.value = map.values.toList();
+  }
+
+  static void _mergeBookings(List<Map<String, dynamic>> items) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final item in [...LocalStore.userSubmittedBookings, ...items]) {
+      final k = (item['id'] ?? item['resource'] ?? '').toString();
+      if (k.isNotEmpty) map[k] = item;
+    }
+    bookings.value = map.values.toList();
+  }
+
+  static void _mergeAnnouncements(List<Map<String, dynamic>> items) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final item in [...LocalStore.userUploadedAnnouncements, ...items]) {
+      final k = (item['id'] ?? item['title'] ?? '').toString();
+      if (k.isNotEmpty) map[k] = item;
+    }
+    announcements.value = map.values.toList();
+  }
+
+  static void _mergeTimetables(List<Map<String, dynamic>> items) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final item in [...LocalStore.userUploadedTimetables, ...items]) {
+      final k = (item['id'] ?? item['subject'] ?? '').toString();
+      if (k.isNotEmpty) map[k] = item;
+    }
+    timetables.value = map.values.toList();
+  }
+
+  static void _mergePlacements(List<Map<String, dynamic>> items) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final item in [...LocalStore.userUploadedPlacements, ...items]) {
+      final k = (item['id'] ?? item['company_name'] ?? item['title'] ?? '').toString();
+      if (k.isNotEmpty) map[k] = item;
+    }
+    placements.value = map.values.toList();
+  }
+
+  static Future<void> triggerSync() async {
+    await _fetchLatestSnapshots();
+  }
+}
 
 
 class PortalColors {
@@ -3928,12 +4057,11 @@ Widget _myActiveComplaintsCard(BuildContext context, AppUser user, VoidCallback 
   return modernSection(
     title: 'My Complaints Status',
     icon: Icons.report_problem_outlined,
-    child: StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase.from('grievances').stream(primaryKey: ['id']).order('created_at', ascending: false),
-      builder: (context, snapshot) {
-        final List<Map<String, dynamic>> live = snapshot.data ?? [];
+    child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+      valueListenable: RealtimeSyncEngine.grievances,
+      builder: (context, live, _) {
         final Map<String, Map<String, dynamic>> combined = {};
-        for (final item in [...LocalStore.userSubmittedGrievances, ...live]) {
+        for (final item in live) {
           final key = (item['id'] ?? item['title'] ?? '').toString();
           if (key.isNotEmpty) combined[key] = item;
         }
@@ -4670,15 +4798,11 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
             ),
           ),
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: supabase
-                  .from('grievances')
-                  .stream(primaryKey: ['id'])
-                  .order('created_at', ascending: false),
-              builder: (context, snapshot) {
-                final List<Map<String, dynamic>> live = snapshot.data ?? [];
+            child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: RealtimeSyncEngine.grievances,
+              builder: (context, live, _) {
                 final Map<String, Map<String, dynamic>> combined = {};
-                for (final item in [...LocalStore.userSubmittedGrievances, ...live]) {
+                for (final item in live) {
                   final key = (item['id'] ?? item['title'] ?? '').toString();
                   if (key.isNotEmpty) combined[key] = item;
                 }
@@ -4838,6 +4962,7 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
       } catch (_) {}
 
       LocalStore.userSubmittedGrievances.insert(0, payload);
+      RealtimeSyncEngine.triggerSync();
 
       widget.onDone();
       if (mounted) {
@@ -4979,6 +5104,7 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
       });
     } catch (_) {}
 
+    RealtimeSyncEngine.triggerSync();
     widget.refresh();
     if (!mounted) return;
     snack(context, 'Facility booking request submitted successfully');
@@ -5002,6 +5128,7 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
       await supabase.from('bookings').update({'status': newStatus}).eq('id', id);
     } catch (_) {}
 
+    RealtimeSyncEngine.triggerSync();
     if (!mounted) return;
     widget.refresh();
     snack(context, 'Booking $newStatus');
@@ -5040,15 +5167,11 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
             const SizedBox(height: 10),
             SizedBox(
               height: isManager ? 620 : 420,
-              child: StreamBuilder<List<Map<String, dynamic>>>(
-                stream: supabase
-                    .from('bookings')
-                    .stream(primaryKey: ['id'])
-                    .order('created_at', ascending: false),
-                builder: (context, snapshot) {
-                  final live = snapshot.data ?? [];
+              child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+                valueListenable: RealtimeSyncEngine.bookings,
+                builder: (context, live, _) {
                   final Map<String, Map<String, dynamic>> combinedMap = {};
-                  for (final item in [...LocalStore.userSubmittedBookings, ...live]) {
+                  for (final item in live) {
                     final k = (item['id'] ?? item['resource'] ?? '').toString();
                     if (k.isNotEmpty) combinedMap[k] = item;
                   }
