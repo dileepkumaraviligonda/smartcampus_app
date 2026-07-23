@@ -2522,10 +2522,7 @@ class _MainScreenState extends State<MainScreen> {
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.redAccent),
-                    onPressed: () {
-                      LocalStore.activeUserEmail.value = null;
-                      fb.FirebaseAuth.instance.signOut();
-                    },
+                    onPressed: () => performAppLogout(context),
                     tooltip: 'Sign Out',
                   ),
                 ],
@@ -2672,7 +2669,7 @@ PreferredSizeWidget portalTopBar(BuildContext context, String title, {required A
         Semantics(
           label: 'logout_button',
           button: true,
-          child: IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+          child: IconButton(icon: const Icon(Icons.logout), onPressed: () => performAppLogout(context)),
         ),
       const SizedBox(width: 8),
     ],
@@ -3969,8 +3966,7 @@ Future<void> performAppLogout(BuildContext context) async {
     await fb.FirebaseAuth.instance.signOut();
   } catch (_) {}
   try {
-    final GoogleSignIn googleSignIn = GoogleSignIn();
-    await googleSignIn.signOut();
+    GoogleSignIn().signOut().timeout(const Duration(milliseconds: 300), onTimeout: () => null);
   } catch (_) {}
   if (context.mounted) {
     Navigator.pushAndRemoveUntil(
@@ -5664,10 +5660,7 @@ class MoreScreen extends StatelessWidget {
           tile(context, Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
           tile(context, Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
           tile(context, Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-          tile(context, Icons.logout, 'Logout', () {
-            LocalStore.activeUserEmail.value = null;
-            fb.FirebaseAuth.instance.signOut();
-          }, danger: true),
+          tile(context, Icons.logout, 'Logout', () => performAppLogout(context), danger: true),
         ],
       ),
     );
