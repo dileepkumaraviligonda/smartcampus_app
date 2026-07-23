@@ -529,7 +529,7 @@ class AuthGate extends StatelessWidget {
                 ? snapshot.data!.email!
                 : null;
 
-            final email = fbEmail ?? localMail ?? (LocalStore.userDatabase.containsKey(LocalStore.lastLoggedInEmail ?? '') ? LocalStore.lastLoggedInEmail : null);
+            final email = fbEmail ?? localMail;
 
             if (email == null || email.isEmpty) {
               return const LoginScreen();
