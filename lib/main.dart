@@ -3791,52 +3791,109 @@ class ModernSmartCampusHome extends StatelessWidget {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final desktop = constraints.maxWidth >= 1050;
+          final desktop = constraints.maxWidth >= 900;
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                LiveCampusPulseHero(user: user, refresh: refresh),
+                // Clean Welcome Header
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF1E3A8A), Color(0xFF2563EB), Color(0xFF0284C7)]),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [BoxShadow(color: Color(0x1F2563EB), blurRadius: 20, offset: Offset(0, 10))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Hello, ${user.name} 👋', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                const Text('Saveetha SmartCampus Real-time Portal', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: const Color(0xFF10B981), borderRadius: BorderRadius.circular(20)),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.circle, color: Colors.white, size: 8),
+                                SizedBox(width: 6),
+                                Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF1E3A8A)),
+                            onPressed: () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh)),
+                            icon: const Icon(Icons.add_alert_outlined),
+                            label: const Text('Raise Issue'),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white54)),
+                            onPressed: () => push(context, CampusMapScreen(user: user, refresh: refresh)),
+                            icon: const Icon(Icons.map_outlined),
+                            label: const Text('Saveetha GPS Map'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // 6 Core Quick Actions Grid
+                const Text('Core Real-time Services', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
                 const SizedBox(height: 12),
-                LiveActivityTicker(user: user),
-                const SizedBox(height: 16),
-                CampusStoriesBar(user: user),
-                const SizedBox(height: 16),
-                ModernStatsRow(user: user),
-                const SizedBox(height: 18),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: desktop ? 6 : (constraints.maxWidth > 550 ? 3 : 2),
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.4,
+                  children: [
+                    _coreActionTile(context, Icons.report_problem_outlined, 'Complaints', 'Raise & Track Issues', Colors.amber.shade800, () => push(context, GrievanceListScreen(user: user, refresh: refresh))),
+                    _coreActionTile(context, Icons.meeting_room_outlined, 'Facility Bookings', 'Reserve Rooms & Labs', Colors.blue.shade700, () => push(context, BookRoomScreen(user: user, refresh: refresh))),
+                    _coreActionTile(context, Icons.map_outlined, 'Saveetha Map', 'GPS Campus Directions', Colors.teal.shade700, () => push(context, CampusMapScreen(user: user, refresh: refresh))),
+                    _coreActionTile(context, Icons.calendar_month_outlined, 'Timetable', 'Class & Exam Slots', Colors.indigo.shade700, () => push(context, TimetableScreen(user: user))),
+                    _coreActionTile(context, Icons.campaign_outlined, 'Announcements', 'Official Notices', Colors.purple.shade700, () => push(context, AnnouncementsScreen(user: user))),
+                    _coreActionTile(context, Icons.emergency_outlined, 'Emergency', 'One-Tap Campus SOS', Colors.red.shade700, () => push(context, EmergencyContactsScreen(user: user))),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Clean Content Split
                 if (desktop)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(flex: 2, child: ModernCampusFeed(user: user)),
-                      const SizedBox(width: 18),
-                      Expanded(child: Column(
-                        children: [
-                          ModernNotificationsPanel(user: user),
-                          const SizedBox(height: 18),
-                          const SizedBox(height: 18),
-                          CampusScoreCard(user: user),
-                          const SizedBox(height: 18),
-                          LivePlacementWall(user: user),
-                          const SizedBox(height: 18),
-                          SmartAssistantShortcuts(user: user, refresh: refresh),
-                        ],
-                      )),
+                      Expanded(child: ModernNotificationsPanel(user: user)),
+                      const SizedBox(width: 20),
+                      Expanded(child: _myActiveComplaintsCard(context, user, refresh)),
                     ],
                   )
                 else ...[
-                  ModernCampusFeed(user: user),
-                  const SizedBox(height: 18),
                   ModernNotificationsPanel(user: user),
-                  const SizedBox(height: 18),
-                  ModernQuickActions(user: user, refresh: refresh),
-                  const SizedBox(height: 18),
-                  CampusScoreCard(user: user),
-                  const SizedBox(height: 18),
-                  LivePlacementWall(user: user),
-                  const SizedBox(height: 18),
-                  SmartAssistantShortcuts(user: user, refresh: refresh),
+                  const SizedBox(height: 20),
+                  _myActiveComplaintsCard(context, user, refresh),
                 ],
               ],
             ),
@@ -3845,6 +3902,86 @@ class ModernSmartCampusHome extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _coreActionTile(BuildContext context, IconData icon, String title, String subtitle, Color color, VoidCallback onTap) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 10),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 2),
+          Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _myActiveComplaintsCard(BuildContext context, AppUser user, VoidCallback refresh) {
+  return modernSection(
+    title: 'My Complaints Status',
+    icon: Icons.report_problem_outlined,
+    child: StreamBuilder<List<Map<String, dynamic>>>(
+      stream: supabase.from('grievances').stream(primaryKey: ['id']).order('created_at', ascending: false),
+      builder: (context, snapshot) {
+        final List<Map<String, dynamic>> live = snapshot.data ?? [];
+        final Map<String, Map<String, dynamic>> combined = {};
+        for (final item in [...LocalStore.userSubmittedGrievances, ...live]) {
+          final key = (item['id'] ?? item['title'] ?? '').toString();
+          if (key.isNotEmpty) combined[key] = item;
+        }
+        final myItems = combined.values.where((g) {
+          final mail = (g['user_email'] ?? '').toString();
+          return mail.isEmpty || mail == user.email;
+        }).toList();
+
+        if (myItems.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('No active complaints raised.', style: TextStyle(color: Colors.grey, fontSize: 14)),
+            ),
+          );
+        }
+
+        return Column(
+          children: myItems.take(4).map((g) {
+            final title = (g['title'] ?? 'Complaint').toString();
+            final status = (g['status'] ?? 'Pending').toString();
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+              child: ListTile(
+                onTap: () => push(context, GrievanceListScreen(user: user, refresh: refresh)),
+                title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text((g['category'] ?? 'Infrastructure').toString(), style: const TextStyle(fontSize: 12)),
+                trailing: chip(status, statusColor(status)),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    ),
+  );
 }
 
 PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
