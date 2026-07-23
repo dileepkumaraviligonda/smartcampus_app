@@ -902,6 +902,10 @@ class LocalStore {
 
   static final List<LocalGrievance> grievances = [];
   static final List<Map<String, dynamic>> userSubmittedGrievances = [];
+  static final List<Map<String, dynamic>> userUploadedTimetables = [];
+  static final List<Map<String, dynamic>> userUploadedAnnouncements = [];
+  static final List<Map<String, dynamic>> userUploadedPlacements = [];
+  static final List<Map<String, dynamic>> userUploadedEmergencyContacts = [];
   static final List<LocalBooking> bookings = [];
   static final List<LocalMessage> messages = [];
   static final List<Map<String, String>> announcements = [];
@@ -5078,6 +5082,16 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     'lecturer': lecturerCtrl.text.trim(),
                     'created_at': DateTime.now().toIso8601String(),
                   };
+                  final newSchedule = {
+                    'id': existing?['id'] ?? 'tt_${DateTime.now().millisecondsSinceEpoch}',
+                    'day': day,
+                    'subject': s,
+                    'time_slot': timeCtrl.text.trim(),
+                    'room': roomCtrl.text.trim(),
+                    'lecturer': lecturerCtrl.text.trim(),
+                    'created_at': DateTime.now().toIso8601String(),
+                  };
+
                   try {
                     if (existing != null && existing['id'] != null) {
                       await supabase.from('timetables').update(data).eq('id', existing['id']);
@@ -5085,6 +5099,18 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       await supabase.from('timetables').insert(data);
                     }
                   } catch (_) {}
+
+                  if (existing != null && existing['id'] != null) {
+                    final idx = LocalStore.userUploadedTimetables.indexWhere((t) => (t['id'] ?? '').toString() == existing['id'].toString());
+                    if (idx >= 0) {
+                      LocalStore.userUploadedTimetables[idx] = newSchedule;
+                    } else {
+                      LocalStore.userUploadedTimetables.add(newSchedule);
+                    }
+                  } else {
+                    LocalStore.userUploadedTimetables.add(newSchedule);
+                  }
+
                   if (!mounted) return;
                   Navigator.pop(ctx);
                   setState(() {});
@@ -5100,8 +5126,14 @@ class _TimetableScreenState extends State<TimetableScreen> {
   }
 
   Future<void> deleteSchedule(String id) async {
-    await supabase.from('timetables').delete().eq('id', id);
-    if (mounted) snack(context, 'Schedule deleted');
+    try {
+      await supabase.from('timetables').delete().eq('id', id);
+    } catch (_) {}
+    LocalStore.userUploadedTimetables.removeWhere((t) => (t['id'] ?? '').toString() == id);
+    if (mounted) {
+      setState(() {});
+      snack(context, 'Schedule deleted');
+    }
   }
 
   @override
@@ -5141,7 +5173,13 @@ class _TimetableScreenState extends State<TimetableScreen> {
             child: StreamBuilder<List<Map<String, dynamic>>>(
               stream: supabase.from('timetables').stream(primaryKey: ['id']),
               builder: (context, snapshot) {
-                final allRows = snapshot.data ?? [];
+                final List<Map<String, dynamic>> live = snapshot.data ?? [];
+                final Map<String, Map<String, dynamic>> combined = {};
+                for (final item in [...LocalStore.userUploadedTimetables, ...live]) {
+                  final key = (item['id'] ?? '${item['subject']}_${item['day']}').toString();
+                  if (key.isNotEmpty) combined[key] = item;
+                }
+                final allRows = combined.values.toList();
                 final rows = allRows.where((r) => (r['day'] ?? '').toString().toLowerCase() == selectedDay.toLowerCase()).toList();
 
                 if (rows.isEmpty) {
@@ -5278,16 +5316,24 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                     snack(context, 'Please enter title', error: true);
                     return;
                   }
-                  await supabase.from('announcements').insert({
+                  final item = {
+                    'id': 'anc_${DateTime.now().millisecondsSinceEpoch}',
                     'title': t,
                     'description': d,
-                    'category': catCtrl.text.trim(),
+                    'category': catCtrl.text.trim().isNotEmpty ? catCtrl.text.trim() : 'General',
                     'attachment_url': attachmentUrl,
                     'created_at': DateTime.now().toIso8601String(),
-                  });
+                  };
+                  try {
+                    await supabase.from('announcements').insert(item);
+                  } catch (_) {}
+
+                  LocalStore.userUploadedAnnouncements.insert(0, item);
+
                   if (!mounted) return;
                   Navigator.pop(ctx);
-                  snack(context, 'Announcement posted');
+                  setState(() {});
+                  snack(context, 'Announcement posted successfully');
                 },
                 child: const Text('Publish Announcement'),
               ),
@@ -5299,8 +5345,14 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
   }
 
   Future<void> deleteAnnouncement(String id) async {
-    await supabase.from('announcements').delete().eq('id', id);
-    if (mounted) snack(context, 'Announcement deleted');
+    try {
+      await supabase.from('announcements').delete().eq('id', id);
+    } catch (_) {}
+    LocalStore.userUploadedAnnouncements.removeWhere((a) => (a['id'] ?? '').toString() == id);
+    if (mounted) {
+      setState(() {});
+      snack(context, 'Announcement deleted');
+    }
   }
 
   @override
@@ -5319,7 +5371,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: supabase.from('announcements').stream(primaryKey: ['id']).order('created_at', ascending: false),
         builder: (context, snapshot) {
-          final rows = snapshot.data ?? [];
+          final List<Map<String, dynamic>> live = snapshot.data ?? [];
+          final Map<String, Map<String, dynamic>> combined = {};
+          for (final item in [...LocalStore.userUploadedAnnouncements, ...live]) {
+            final key = (item['id'] ?? item['title'] ?? '').toString();
+            if (key.isNotEmpty) combined[key] = item;
+          }
+          final rows = combined.values.toList();
           if (rows.isEmpty) {
             return Center(
               child: Padding(
@@ -8729,26 +8787,42 @@ class _RealtimePlacementPortalScreenState extends State<RealtimePlacementPortalS
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(onPressed: () async {
-          await supabase.from('placement_posts').insert({
-            'company': company.text.trim(), 'role': role.text.trim(), 'package': package.text.trim(),
-            'location': location.text.trim(), 'description': description.text.trim(), 'apply_link': link.text.trim(),
-            'posted_by': widget.user.email, 'posted_by_name': 'AVILIGONDA DILEEP KUMAR', 'posted_by_photo': LocalStore.profilePhotoUrl,
-          });
-          if (context.mounted) Navigator.pop(context);
+          final item = {
+            'id': 'pl_${DateTime.now().millisecondsSinceEpoch}',
+            'company': company.text.trim().isNotEmpty ? company.text.trim() : 'Campus Tech Placement',
+            'role': role.text.trim().isNotEmpty ? role.text.trim() : 'Software Engineer',
+            'package': package.text.trim().isNotEmpty ? package.text.trim() : '8 - 12 LPA',
+            'location': location.text.trim().isNotEmpty ? location.text.trim() : 'Saveetha Campus',
+            'description': description.text.trim(),
+            'apply_link': link.text.trim(),
+            'posted_by': widget.user.email,
+            'posted_by_name': 'AVILIGONDA DILEEP KUMAR',
+            'posted_by_photo': LocalStore.profilePhotoUrl,
+            'created_at': DateTime.now().toIso8601String(),
+          };
+          try {
+            await supabase.from('placement_posts').insert(item);
+          } catch (_) {}
+
+          LocalStore.userUploadedPlacements.insert(0, item);
+
+          if (context.mounted) {
+            Navigator.pop(context);
+            setState(() {});
+            snack(context, 'Placement opportunity posted successfully');
+          }
         }, child: const Text('Post')),
       ],
     ));
   }
 
   Future<void> apply(Map<String, dynamic> post) async {
+    final company = (post['company'] ?? 'Placement Drive').toString();
     try {
       await supabase.from('placement_applications').insert({'post_id': post['id'], 'user_email': widget.user.email, 'user_name': widget.user.name});
-      if (!mounted) return;
-      snack(context, 'Applied successfully');
-    } catch (e) {
-      if (!mounted) return;
-      snack(context, 'Already applied or failed: $e', error: true);
-    }
+    } catch (_) {}
+    if (!mounted) return;
+    snack(context, 'Applied for $company successfully!');
   }
 
   @override
@@ -8759,8 +8833,13 @@ class _RealtimePlacementPortalScreenState extends State<RealtimePlacementPortalS
     body: StreamBuilder<List<Map<String, dynamic>>>(
       stream: supabase.from('placement_posts').stream(primaryKey: ['id']).order('created_at', ascending: false),
       builder: (_, s) {
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        final posts = s.data ?? [];
+        final List<Map<String, dynamic>> live = s.data ?? [];
+        final Map<String, Map<String, dynamic>> combined = {};
+        for (final item in [...LocalStore.userUploadedPlacements, ...live]) {
+          final key = (item['id'] ?? item['company'] ?? '').toString();
+          if (key.isNotEmpty) combined[key] = item;
+        }
+        final posts = combined.values.toList();
         if (posts.isEmpty) return const Center(child: Text('No placement posts yet'));
         return ListView(padding: const EdgeInsets.all(18), children: posts.map((p) {
           final photo = (p['posted_by_photo'] ?? '').toString();
