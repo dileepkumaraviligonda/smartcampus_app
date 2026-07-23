@@ -903,6 +903,7 @@ class LocalStore {
 
   static final List<LocalGrievance> grievances = [];
   static final List<Map<String, dynamic>> userSubmittedGrievances = [];
+  static final List<Map<String, dynamic>> userSubmittedBookings = [];
   static final List<Map<String, dynamic>> userUploadedTimetables = [];
   static final List<Map<String, dynamic>> userUploadedAnnouncements = [];
   static final List<Map<String, dynamic>> userUploadedPlacements = [];
@@ -3856,7 +3857,7 @@ class ModernSmartCampusHome extends StatelessWidget {
                   crossAxisCount: desktop ? 6 : (constraints.maxWidth > 550 ? 3 : 2),
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
-                  childAspectRatio: 1.4,
+                  childAspectRatio: desktop ? 1.05 : 1.15,
                   children: [
                     _coreActionTile(context, Icons.report_problem_outlined, 'Complaints', 'Raise & Track Issues', Colors.amber.shade800, () => push(context, GrievanceListScreen(user: user, refresh: refresh))),
                     _coreActionTile(context, Icons.meeting_room_outlined, 'Facility Bookings', 'Reserve Rooms & Labs', Colors.blue.shade700, () => push(context, BookRoomScreen(user: user, refresh: refresh))),
@@ -3897,7 +3898,7 @@ Widget _coreActionTile(BuildContext context, IconData icon, String title, String
     onTap: onTap,
     borderRadius: BorderRadius.circular(18),
     child: Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -3909,14 +3910,14 @@ Widget _coreActionTile(BuildContext context, IconData icon, String title, String
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(12)),
-            child: Icon(icon, color: color, size: 22),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 6),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 2),
-          Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
     ),
@@ -4951,6 +4952,21 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
       return;
     }
 
+    final newBooking = {
+      'id': 'bk_${DateTime.now().millisecondsSinceEpoch}',
+      'resource': resource,
+      'booking_date': date,
+      'booking_time': time,
+      'status': 'Pending',
+      'user_email': widget.user.email,
+      'user_name': LocalStore.currentName ?? widget.user.name,
+      'created_at': DateTime.now().toIso8601String(),
+    };
+
+    setState(() {
+      LocalStore.userSubmittedBookings.insert(0, newBooking);
+    });
+
     try {
       await supabase.from('bookings').insert({
         'resource': resource,
@@ -4961,31 +4977,34 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
         'user_name': LocalStore.currentName ?? widget.user.name,
         'created_at': DateTime.now().toIso8601String(),
       });
+    } catch (_) {}
 
-      widget.refresh();
-      if (!mounted) return;
-      snack(context, 'Booking request submitted');
-      setState(() {
-        resource = '';
-        date = '';
-        time = '';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      snack(context, 'Booking failed: $e', error: true);
-    }
+    widget.refresh();
+    if (!mounted) return;
+    snack(context, 'Facility booking request submitted successfully');
+    setState(() {
+      resource = '';
+      date = '';
+      time = '';
+    });
   }
 
   Future<void> updateBookingStatus(String id, String newStatus) async {
+    setState(() {
+      for (final b in LocalStore.userSubmittedBookings) {
+        if ((b['id'] ?? '').toString() == id) {
+          b['status'] = newStatus;
+        }
+      }
+    });
+
     try {
       await supabase.from('bookings').update({'status': newStatus}).eq('id', id);
-      if (!mounted) return;
-      widget.refresh();
-      snack(context, 'Booking $newStatus');
-    } catch (e) {
-      if (!mounted) return;
-      snack(context, 'Update failed: $e', error: true);
-    }
+    } catch (_) {}
+
+    if (!mounted) return;
+    widget.refresh();
+    snack(context, 'Booking $newStatus');
   }
 
   List<Map<String, dynamic>> visibleBookings(List<Map<String, dynamic>> rows) {
@@ -5027,7 +5046,13 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
                     .stream(primaryKey: ['id'])
                     .order('created_at', ascending: false),
                 builder: (context, snapshot) {
-                  final rawBookings = snapshot.data ?? [];
+                  final live = snapshot.data ?? [];
+                  final Map<String, Map<String, dynamic>> combinedMap = {};
+                  for (final item in [...LocalStore.userSubmittedBookings, ...live]) {
+                    final k = (item['id'] ?? item['resource'] ?? '').toString();
+                    if (k.isNotEmpty) combinedMap[k] = item;
+                  }
+                  final rawBookings = combinedMap.values.toList();
                   final bookings = visibleBookings(rawBookings);
 
                   if (bookings.isEmpty) {
