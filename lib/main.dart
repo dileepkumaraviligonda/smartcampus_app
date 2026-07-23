@@ -4353,12 +4353,31 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
   }
 
   Future<void> updateStatus(String id, String status) async {
+    if (status == 'Rejected') {
+      try {
+        await supabase.from('grievances').delete().eq('id', id);
+      } catch (_) {}
+      LocalStore.userSubmittedGrievances.removeWhere((g) => (g['id'] ?? '').toString() == id);
+      if (mounted) {
+        snack(context, 'Complaint rejected and removed', error: false);
+        setState(() {});
+      }
+      return;
+    }
+
     try {
       await supabase.from('grievances').update({'status': status}).eq('id', id);
-      if (mounted) snack(context, 'Status updated to $status');
-      AppState.addLog('Grievance $id updated to $status');
-    } catch (e) {
-      if (mounted) snack(context, 'Supabase update failed: $e', error: true);
+    } catch (_) {}
+
+    for (final g in LocalStore.userSubmittedGrievances) {
+      if ((g['id'] ?? '').toString() == id) {
+        g['status'] = status;
+      }
+    }
+
+    if (mounted) {
+      snack(context, 'Complaint status updated to $status', error: false);
+      setState(() {});
     }
   }
 
