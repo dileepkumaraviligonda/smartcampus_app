@@ -3950,7 +3950,9 @@ Widget _myActiveComplaintsCard(BuildContext context, AppUser user, VoidCallback 
         }
         final myItems = combined.values.where((g) {
           final mail = (g['user_email'] ?? '').toString();
-          return mail.isEmpty || mail == user.email;
+          final title = (g['title'] ?? '').toString().trim();
+          if (title.isEmpty || mail == 'student@college.edu') return false;
+          return AccessControl.isAdminEmail(user.email) || mail == user.email;
         }).toList();
 
         if (myItems.isEmpty) {
@@ -4473,7 +4475,12 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
 
   List<Map<String, dynamic>> filteredRows(List<Map<String, dynamic>> rows) {
     final canManage = AccessControl.isAdminEmail(widget.user.email);
-    var items = canManage ? rows : rows.where((g) => (g['user_email'] ?? '') == widget.user.email).toList();
+    var items = rows.where((g) {
+      final email = (g['user_email'] ?? '').toString();
+      final title = (g['title'] ?? '').toString().trim();
+      if (title.isEmpty || email == 'student@college.edu') return false;
+      return canManage || email == widget.user.email;
+    }).toList();
 
     if (statusFilter != 'All') {
       items = items.where((g) => (g['status'] ?? 'Pending') == statusFilter).toList();
