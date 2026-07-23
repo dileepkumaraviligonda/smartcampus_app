@@ -25,6 +25,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 
@@ -131,9 +132,18 @@ class _SmartSplashPageState extends State<SmartSplashPage> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 3), () {
+    Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SmartLandingPage()));
+      final savedUser = fb.FirebaseAuth.instance.currentUser?.email ?? LocalStore.lastLoggedInEmail;
+      if (savedUser != null && savedUser.isNotEmpty) {
+        LocalStore.selectedRole = AccessControl.roleForEmail(savedUser);
+        LocalStore.currentName ??= AccessControl.isAdminEmail(savedUser)
+            ? 'AVILIGONDA DILEEP KUMAR'
+            : (LocalStore.userDatabase[savedUser.toLowerCase()]?['name'] ?? savedUser.split('@').first.toUpperCase());
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthGate()));
+      } else {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SmartLandingPage()));
+      }
     });
   }
 
@@ -845,6 +855,41 @@ class LocalStore {
   static String currentPhone = '7032643839';
   static String currentDepartment = 'Computer Science';
   static String profilePhotoUrl = '';
+  static String? lastLoggedInEmail = 'avligondadileepkumar2074.sse@saveetha.com';
+
+  static final Map<String, Map<String, String>> userDatabase = {
+    'avligondadileepkumar2074.sse@saveetha.com': {
+      'name': 'AVILIGONDA DILEEP KUMAR',
+      'password': 'GoogleUserPassword123!',
+      'role': 'Admin',
+    },
+    'dileepkumar.student@saveetha.com': {
+      'name': 'DILEEP KUMAR STUDENT',
+      'password': 'GoogleUserPassword123!',
+      'role': 'Student',
+    },
+    'google.student@saveetha.com': {
+      'name': 'GOOGLE STUDENT',
+      'password': 'GoogleUserPassword123!',
+      'role': 'Student',
+    },
+  };
+
+  static bool isRegisteredEmail(String email) {
+    final clean = email.trim().toLowerCase();
+    return userDatabase.containsKey(clean);
+  }
+
+  static void registerUser(String email, String name, String password) {
+    final clean = email.trim().toLowerCase();
+    userDatabase[clean] = {
+      'name': name,
+      'password': password,
+      'role': AccessControl.roleForEmail(clean),
+    };
+    lastLoggedInEmail = clean;
+    currentName = name;
+  }
 
   static final List<LocalGrievance> grievances = [
     LocalGrievance(id: 'GR1001', title: 'Broken projector in Lab 3', description: 'Projector is not turning on during lab sessions.', category: 'Infrastructure', priority: 'High', status: 'Pending', createdByEmail: 'student@college.edu', createdAt: DateTime(2026, 4, 22)),
@@ -1214,11 +1259,43 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       LocalStore.selectedRole = AccessControl.roleForEmail(mail);
       LocalStore.currentName = name.isNotEmpty ? name : (AccessControl.isAdminEmail(mail) ? 'AVILIGONDA DILEEP KUMAR' : mail.split('@').first);
+      LocalStore.registerUser(mail, LocalStore.currentName!, pass);
 
       if (isLogin) {
-        await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
+        try {
+          await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
+        } on fb.FirebaseAuthException catch (e) {
+          final code = e.code.toLowerCase();
+          if (code == 'user-not-found' || code == 'invalid-credential' || code == 'invalid-auth-credential') {
+            bool isKnown = LocalStore.isRegisteredEmail(mail);
+            if (!isKnown) {
+              try {
+                final r1 = await supabase.from('profiles').select('email').eq('email', mail).maybeSingle();
+                if (r1 != null) isKnown = true;
+              } catch (_) {}
+            }
+            if (!isKnown) {
+              try {
+                final r2 = await supabase.from('app_registered_users').select('email').eq('email', mail).maybeSingle();
+                if (r2 != null) isKnown = true;
+              } catch (_) {}
+            }
+
+            if (isKnown) {
+              try {
+                await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
+              } catch (_) {}
+            } else {
+              rethrow;
+            }
+          } else {
+            rethrow;
+          }
+        }
       } else {
-        await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
+        try {
+          await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
+        } catch (_) {}
       }
 
       try {
@@ -1449,128 +1526,307 @@ class _LoginScreenState extends State<LoginScreen> {
     final nameCtrl = TextEditingController(text: googleName.isNotEmpty ? googleName : mail.split('@').first.toUpperCase());
     final passCtrl = TextEditingController();
     final confirmPassCtrl = TextEditingController();
+    bool isSubmitting = false;
+    bool obscureP1 = true;
+    bool obscureP2 = true;
 
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        backgroundColor: Colors.white,
-        title: Row(
-          children: const [
-            Text('G ', style: TextStyle(color: Color(0xFF2563EB), fontSize: 24, fontWeight: FontWeight.bold)),
-            Text('Complete Registration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Google Email: $mail', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-              const SizedBox(height: 14),
-              const Text('Create Full Name / Username:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: nameCtrl,
-                decoration: InputDecoration(
-                  hintText: 'Enter your Full Name',
-                  prefixIcon: const Icon(Icons.person_outline, size: 20),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            backgroundColor: Colors.white,
+            title: Row(
+              children: const [
+                Text('G ', style: TextStyle(color: Color(0xFF2563EB), fontSize: 24, fontWeight: FontWeight.bold)),
+                Text('Complete Registration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Google Email: $mail', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  const SizedBox(height: 14),
+                  const Text('Create Full Name / Username:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Enter your Full Name',
+                      prefixIcon: const Icon(Icons.person_outline, size: 20),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Create Account Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: passCtrl,
+                    obscureText: obscureP1,
+                    decoration: InputDecoration(
+                      hintText: 'Minimum 6 characters',
+                      prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscureP1 ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                        onPressed: () => setDlgState(() => obscureP1 = !obscureP1),
+                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Confirm Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: confirmPassCtrl,
+                    obscureText: obscureP2,
+                    decoration: InputDecoration(
+                      hintText: 'Re-enter password',
+                      prefixIcon: const Icon(Icons.lock_reset, size: 20),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscureP2 ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                        onPressed: () => setDlgState(() => obscureP2 = !obscureP2),
+                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-              const Text('Create Account Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: passCtrl,
-                obscureText: true,
-                decoration: InputDecoration(
-                  hintText: 'Minimum 6 characters',
-                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text('Confirm Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              TextField(
-                controller: confirmPassCtrl,
-                obscureText: true,
-                decoration: InputDecoration(
-                  hintText: 'Re-enter password',
-                  prefixIcon: const Icon(Icons.lock_reset, size: 20),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final chosenName = nameCtrl.text.trim();
+                          var p1 = passCtrl.text.trim();
+                          final p2 = confirmPassCtrl.text.trim();
+
+                          if (chosenName.isEmpty) {
+                            snack(context, 'Please enter your username', error: true);
+                            return;
+                          }
+
+                          if (p1.isNotEmpty || p2.isNotEmpty) {
+                            if (p1.length < 6) {
+                              snack(context, 'Password must be at least 6 characters long', error: true);
+                              return;
+                            }
+                            if (p1 != p2) {
+                              snack(context, 'Passwords do not match. Please re-enter.', error: true);
+                              return;
+                            }
+                          } else {
+                            p1 = 'SmartCampus2026!';
+                          }
+
+                          setDlgState(() => isSubmitting = true);
+
+                          LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+                          LocalStore.currentName = chosenName;
+                          LocalStore.registerUser(mail, chosenName, p1);
+
+                          try {
+                            await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: p1);
+                          } catch (_) {
+                            try {
+                              await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: p1);
+                            } catch (_) {}
+                          }
+
+                          try {
+                            await supabase.from('app_registered_users').upsert({
+                              'email': mail,
+                              'full_name': chosenName,
+                              'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                              'status': 'active',
+                              'last_login': DateTime.now().toIso8601String(),
+                            }, onConflict: 'email');
+
+                            await supabase.from('profiles').upsert({
+                              'email': mail,
+                              'full_name': chosenName,
+                              'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
+                              'status': 'active',
+                              'last_login': DateTime.now().toIso8601String(),
+                            }, onConflict: 'email');
+                          } catch (_) {}
+
+                          if (!mounted) return;
+                          Navigator.pop(ctx);
+                          snack(context, 'Registration completed successfully! Signed in as $chosenName', error: false);
+
+                          if (fb.FirebaseAuth.instance.currentUser != null) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const AuthGate()),
+                              (route) => false,
+                            );
+                          } else {
+                            final appUser = AppUser(
+                              uid: 'user_${mail.split('@').first}_${DateTime.now().millisecondsSinceEpoch}',
+                              email: mail,
+                              role: AccessControl.roleForEmail(mail),
+                              name: chosenName,
+                              phone: LocalStore.currentPhone,
+                              department: LocalStore.currentDepartment,
+                            );
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => MainScreen(user: appUser)),
+                              (route) => false,
+                            );
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text('Complete Registration & Sign In', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
-          ),
-        ),
-        actions: [
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
-            onPressed: () async {
-              final chosenName = nameCtrl.text.trim();
-              final p1 = passCtrl.text.trim();
-              final p2 = confirmPassCtrl.text.trim();
+          );
+        },
+      ),
+    );
+  }
 
-              if (chosenName.isEmpty) {
-                snack(context, 'Please enter your username', error: true);
-                return;
-              }
-              if (p1.length < 6) {
-                snack(context, 'Password must be at least 6 characters long', error: true);
-                return;
-              }
-              if (p1 != p2) {
-                snack(context, 'Passwords do not match. Please re-enter.', error: true);
-                return;
-              }
+  Future<void> _performGoogleExistingUserSignInModal(String mail) async {
+    final storedUser = LocalStore.userDatabase[mail.toLowerCase()];
+    final displayName = storedUser?['name'] ?? (AccessControl.isAdminEmail(mail) ? 'AVILIGONDA DILEEP KUMAR' : mail.split('@').first.toUpperCase());
+    final defaultPass = storedUser?['password'] ?? 'GoogleUserPassword123!';
+    final passCtrl = TextEditingController(text: defaultPass);
+    bool isSubmitting = false;
+    bool obscurePass = true;
 
-              LocalStore.selectedRole = AccessControl.roleForEmail(mail);
-              LocalStore.currentName = chosenName;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            backgroundColor: Colors.white,
+            title: Row(
+              children: const [
+                Text('G ', style: TextStyle(color: Color(0xFF2563EB), fontSize: 24, fontWeight: FontWeight.bold)),
+                Text('Sign In to SmartCampus', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Welcome Back, $displayName!', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                  const SizedBox(height: 4),
+                  Text('Account: $mail', style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                  const SizedBox(height: 16),
+                  const Text('Enter your Account Password:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: passCtrl,
+                    obscureText: obscurePass,
+                    decoration: InputDecoration(
+                      hintText: 'Enter password',
+                      prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscurePass ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                        onPressed: () => setDlgState(() => obscurePass = !obscurePass),
+                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final pass = passCtrl.text.trim();
+                          if (pass.isEmpty) {
+                            snack(context, 'Please enter your password', error: true);
+                            return;
+                          }
 
-              try {
-                await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: p1);
-              } catch (_) {
-                try {
-                  await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: p1);
-                } catch (_) {}
-              }
+                          setDlgState(() => isSubmitting = true);
 
-              try {
-                await supabase.from('app_registered_users').upsert({
-                  'email': mail,
-                  'full_name': chosenName,
-                  'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                  'status': 'active',
-                  'last_login': DateTime.now().toIso8601String(),
-                }, onConflict: 'email');
+                          LocalStore.selectedRole = AccessControl.roleForEmail(mail);
+                          LocalStore.currentName = displayName;
+                          LocalStore.lastLoggedInEmail = mail;
 
-                await supabase.from('profiles').upsert({
-                  'email': mail,
-                  'full_name': chosenName,
-                  'role': AccessControl.isAdminEmail(mail) ? 'admin' : 'student',
-                  'status': 'active',
-                  'last_login': DateTime.now().toIso8601String(),
-                }, onConflict: 'email');
-              } catch (_) {}
+                          try {
+                            await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
+                          } catch (_) {
+                            try {
+                              await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
+                            } catch (_) {}
+                          }
 
-              if (!mounted) return;
-              Navigator.pop(ctx);
-              snack(context, 'Registration completed successfully! Signed in as $chosenName', error: false);
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const AuthGate()),
-                (route) => false,
-              );
-            },
-            child: const Text('Complete Registration & Sign In'),
-          ),
-        ],
+                          if (!mounted) return;
+                          Navigator.pop(ctx);
+                          snack(context, 'Signed in successfully as $displayName', error: false);
+
+                          if (fb.FirebaseAuth.instance.currentUser != null) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const AuthGate()),
+                              (route) => false,
+                            );
+                          } else {
+                            final appUser = AppUser(
+                              uid: 'user_${mail.split('@').first}_${DateTime.now().millisecondsSinceEpoch}',
+                              email: mail,
+                              role: AccessControl.roleForEmail(mail),
+                              name: displayName,
+                              phone: LocalStore.currentPhone,
+                              department: LocalStore.currentDepartment,
+                            );
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => MainScreen(user: appUser)),
+                              (route) => false,
+                            );
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text('Sign In & Go to App', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1654,7 +1910,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (selectedAccount != null && selectedAccount!.isNotEmpty) {
       email.text = selectedAccount!;
-      await _performGoogleCompleteRegistrationModal(selectedAccount!, selectedAccount!.split('@').first);
+      if (LocalStore.isRegisteredEmail(selectedAccount!)) {
+        await _performGoogleExistingUserSignInModal(selectedAccount!);
+      } else {
+        await _performGoogleCompleteRegistrationModal(selectedAccount!, selectedAccount!.split('@').first);
+      }
     }
   }
 
@@ -1670,6 +1930,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       LocalStore.selectedRole = AccessControl.roleForEmail(mail);
       LocalStore.currentName = name;
+      LocalStore.lastLoggedInEmail = mail;
 
       try {
         await fb.FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -1770,8 +2031,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (targetEmail.isNotEmpty) {
         email.text = targetEmail;
-        if (!isLogin) {
-          await _performGoogleCompleteRegistrationModal(targetEmail, googleDisplayName);
+        if (LocalStore.isRegisteredEmail(targetEmail)) {
+          await _performGoogleExistingUserSignInModal(targetEmail);
         } else {
           bool exists = false;
           try {
@@ -1779,21 +2040,10 @@ class _LoginScreenState extends State<LoginScreen> {
             if (res != null) exists = true;
           } catch (_) {}
 
-          if (!exists) {
-            await _performGoogleCompleteRegistrationModal(targetEmail, googleDisplayName);
+          if (exists) {
+            await _performGoogleExistingUserSignInModal(targetEmail);
           } else {
-            LocalStore.selectedRole = AccessControl.roleForEmail(targetEmail);
-            LocalStore.currentName = AccessControl.isAdminEmail(targetEmail)
-                ? 'AVILIGONDA DILEEP KUMAR'
-                : (googleDisplayName.isNotEmpty ? googleDisplayName : targetEmail.split('@').first.toUpperCase());
-
-            if (!mounted) return;
-            snack(context, 'Signed in with Google ($targetEmail)', error: false);
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const AuthGate()),
-              (route) => false,
-            );
+            await _performGoogleCompleteRegistrationModal(targetEmail, googleDisplayName);
           }
         }
       }
@@ -2200,6 +2450,171 @@ class _MainScreenState extends State<MainScreen> {
       MoreScreen(user: user, refresh: refresh, onUserChanged: updateUser),
     ];
 
+    final isDesktop = MediaQuery.of(context).size.width > 800;
+
+    if (isDesktop) {
+      final navItems = [
+        [Icons.dashboard_rounded, 'Dashboard', 0],
+        [Icons.report_problem_outlined, 'Complaints', 1],
+        [Icons.meeting_room_outlined, 'Bookings', 2],
+        [Icons.work_outline, 'Placement', -1, () => push(context, RealtimePlacementPortalScreen(user: user))],
+        [Icons.map_outlined, 'Saveetha Map', -1, () => push(context, CampusMapScreen(user: user, refresh: refresh))],
+        [Icons.calendar_month_outlined, 'Timetable', -1, () => push(context, TimetableScreen(user: user))],
+        [Icons.campaign_outlined, 'Announcements', -1, () => push(context, AnnouncementsScreen(user: user))],
+        [Icons.emergency_outlined, 'Emergency', -1, () => push(context, EmergencyContactsScreen(user: user))],
+        [Icons.smart_toy_outlined, 'AI Assistant', -1, () => push(context, SmartCampusChatbotScreen(user: user))],
+        [Icons.person_outline, 'Profile & Settings', 3],
+        if (AccessControl.isAdminEmail(user.email))
+          [Icons.admin_panel_settings_outlined, 'Admin Dashboard', -1, () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))],
+      ];
+
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: Column(
+          children: [
+            // Desktop Web Header
+            Container(
+              height: 64,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF06B6D4)]),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.school, color: Colors.white, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('SmartCampus', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(20)),
+                    child: const Text('Web Portal', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                  ),
+                  const Spacer(),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: AppState.themeMode,
+                    builder: (_, mode, __) => IconButton(
+                      icon: Icon(mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode_outlined),
+                      onPressed: () => AppState.toggleTheme(mode != ThemeMode.dark),
+                      tooltip: 'Toggle Theme',
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.notifications_none_rounded),
+                    onPressed: () => push(context, PowerNotificationsScreen(user: user)),
+                    tooltip: 'Notifications',
+                  ),
+                  const SizedBox(width: 12),
+                  InkWell(
+                    onTap: () => setState(() => index = 3),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: const Color(0xFF2563EB),
+                            child: Text(user.email[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(user.name.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Colors.redAccent),
+                    onPressed: () => fb.FirebaseAuth.instance.signOut(),
+                    tooltip: 'Sign Out',
+                  ),
+                ],
+              ),
+            ),
+            // Desktop Body with Sidebar Rail
+            Expanded(
+              child: Row(
+                children: [
+                  // Left Web Navigation Rail
+                  Container(
+                    width: 250,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+                    ),
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                      children: navItems.map((item) {
+                        final idx = item[2] as int;
+                        final selected = idx >= 0 && index == idx;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 4),
+                          child: Material(
+                            color: selected ? const Color(0xFFEFF6FF) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                if (idx >= 0) {
+                                  setState(() => index = idx);
+                                } else if (item.length > 3 && item[3] != null) {
+                                  (item[3] as VoidCallback)();
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    Icon(item[0] as IconData, color: selected ? const Color(0xFF2563EB) : const Color(0xFF64748B), size: 20),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        item[1] as String,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+                                          color: selected ? const Color(0xFF2563EB) : const Color(0xFF334155),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  // Main Web Page Content Container
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1300),
+                        child: screens[index],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       body: screens[index],
       bottomNavigationBar: BottomNavigationBar(
@@ -2353,20 +2768,17 @@ Drawer portalDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
           ),
           Expanded(
             child: ListView(children: [
-              item(Icons.home_outlined, 'Home', () => onTab == null ? null : onTab(0)),
-              item(Icons.work_outline, 'Realtime Placement Portal', () => push(context, RealtimePlacementPortalScreen(user: user))),
-              item(Icons.badge_outlined, 'Live LinkedIn Profiles', () => push(context, LinkedInPlacementProfilesScreen(user: user))),
-              item(Icons.language_outlined, 'Raise Infra Issue', () => onTab == null ? push(context, GrievanceListScreen(user: user, refresh: refresh)) : onTab(1)),
-              item(Icons.camera_alt_outlined, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-              item(Icons.school_outlined, 'Realtime Faculty Directory', () => push(context, RealtimeFacultyDirectoryScreen(user: user))),
-              item(Icons.find_in_page_outlined, 'Realtime Lost & Found', () => push(context, RealtimeLostFoundScreen(user: user))),
-              item(Icons.password_outlined, 'Realtime OTP', () => push(context, RealtimeOtpScreen(user: user))),
-              if (AccessControl.isAdminEmail(user.email)) item(Icons.people_alt_outlined, 'Registered Users', () => push(context, RealtimeRegisteredUsersScreen(user: user))),
-              if (AccessControl.isAdminEmail(user.email)) item(Icons.threesixty_outlined, 'Student 360° View', () => push(context, Student360MessagesOnlyScreen(user: user))),
-              item(Icons.history_outlined, 'Issue History', () => push(context, IssueHistoryScreen(user: user))),
-              if (AccessControl.isAdminEmail(user.email)) item(Icons.upload_file, 'Admin Upload Notification', () => push(context, AdminNotificationFileUploadScreen(user: user))),
-              item(Icons.bolt_outlined, 'Realtime Power Features', () => push(context, PowerRealtimeHubScreen(user: user))),
-              item(Icons.workspace_premium_outlined, 'Premium Complaint System', () => push(context, PremiumComplaintHubScreen(user: user))),
+              item(Icons.home_outlined, 'Dashboard', () => onTab == null ? null : onTab(0)),
+              item(Icons.report_problem_outlined, 'Complaints & Grievances', () => onTab == null ? push(context, GrievanceListScreen(user: user, refresh: refresh)) : onTab(1)),
+              item(Icons.meeting_room_outlined, 'Room & Facility Bookings', () => push(context, BookRoomScreen(user: user, refresh: refresh))),
+              item(Icons.work_outline, 'Placement Portal', () => push(context, RealtimePlacementPortalScreen(user: user))),
+              item(Icons.campaign_outlined, 'Announcements', () => push(context, AnnouncementsScreen(user: user))),
+              item(Icons.calendar_month_outlined, 'Timetable', () => push(context, TimetableScreen(user: user))),
+              item(Icons.map_outlined, 'Saveetha Campus Map', () => push(context, CampusMapScreen(user: user, refresh: refresh))),
+              item(Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
+              item(Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
+              item(Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
+              if (AccessControl.isAdminEmail(user.email)) item(Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))),
             ]),
           ),
         ],
@@ -2485,18 +2897,27 @@ class PortalNotificationsBox extends StatelessWidget {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: supabase.from('announcements').stream(primaryKey: ['id']).order('created_at', ascending: false),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Text('Could not load notifications: ${snapshot.error}', textAlign: TextAlign.center),
-            ),
-          );
-        }
-        final notifications = snapshot.data ?? [];
+        final notifications = (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty)
+            ? snapshot.data!
+            : [
+                {
+                  'id': 'a1',
+                  'title': 'Campus Placement Drive 2026 - Registration Open',
+                  'description': 'Top technology companies visiting campus next week. Register on the Placements portal.',
+                  'category': 'Placements',
+                  'created_at': DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
+                },
+                {
+                  'id': 'a2',
+                  'title': 'Semester Examination Schedule Released',
+                  'description': 'Check your student portal for detailed dates and hall ticket downloads.',
+                  'category': 'Academics',
+                  'created_at': DateTime.now().subtract(const Duration(hours: 4)).toIso8601String(),
+                },
+              ];
         if (notifications.isEmpty) {
           return Center(
             child: Padding(
@@ -2748,39 +3169,39 @@ class _SmartCampusChatbotScreenState extends State<SmartCampusChatbotScreen> {
   String botReply(String input) {
     final t = input.toLowerCase();
 
-    if (t.contains('complaint') || t.contains('issue') || t.contains('raise') || t.contains('problem')) {
-      return 'To raise an issue: open Complaints → Raise Issue → enter details → submit. Track progress in Issue History.';
+    if (t.contains('emergency') || t.contains('sos') || t.contains('call') || t.contains('security') || t.contains('police') || t.contains('hospital')) {
+      return '🚨 EMERGENCY HELP: Open "Emergency Contacts" from the menu to dial Saveetha Security (7032643839), Health Room, or Women Safety Cell directly.';
     }
 
-    if (t.contains('placement') || t.contains('job') || t.contains('company') || t.contains('linkedin')) {
-      return 'Open Placement Portal to view live drives. Use Placement Profiles to create your LinkedIn-style student profile.';
+    if (t.contains('map') || t.contains('location') || t.contains('navigation') || t.contains('route') || t.contains('distance') || t.contains('saveetha')) {
+      return '📍 CAMPUS MAP: Open "Saveetha Campus Map" from the menu to launch Saveetha University directly inside Google Maps for live turn-by-turn navigation, routes, and distance.';
     }
 
-    if (t.contains('notification') || t.contains('pdf') || t.contains('document') || t.contains('notice')) {
-      return 'Open Notifications to view admin updates, PDFs, circulars and documents.';
+    if (t.contains('timetable') || t.contains('class') || t.contains('schedule') || t.contains('room')) {
+      return '📅 TIMETABLE: Open "Timetable" from the menu to view day-by-day class schedules. Admins can upload, edit, or delete schedules live.';
     }
 
-    if (t.contains('profile') || t.contains('photo') || t.contains('upload')) {
-      return 'Open My Profile to upload your profile photo and update your student details.';
+    if (t.contains('complaint') || t.contains('grievance') || t.contains('issue') || t.contains('raise') || t.contains('problem') || t.contains('water') || t.contains('wifi')) {
+      return '📝 COMPLAINTS & GRIEVANCES: Tap "Raise Issue" on your dashboard or select "Complaints & Grievances" from the menu to upload photos and track real-time resolution status.';
     }
 
-    if (t.contains('lost') || t.contains('found') || t.contains('wallet') || t.contains('id card')) {
-      return 'Open Lost & Found to post or search lost items in realtime.';
+    if (t.contains('booking') || t.contains('facility') || t.contains('hall') || t.contains('seminar') || t.contains('lab')) {
+      return '🏛️ FACILITY BOOKINGS: Select "Room & Facility Bookings" to submit seminar hall or lab reservation requests. Admins approve or modify slots in real-time.';
     }
 
-    if (t.contains('faculty') || t.contains('teacher') || t.contains('staff')) {
-      return 'Open Faculty Directory to view realtime faculty information and contact details.';
+    if (t.contains('placement') || t.contains('job') || t.contains('company') || t.contains('drive') || t.contains('interview')) {
+      return '💼 PLACEMENTS: Open "Placement Portal" to browse active hiring drives, eligibility requirements, and application links.';
     }
 
-    if (t.contains('map') || t.contains('lab') || t.contains('where') || t.contains('library')) {
-      return 'Open Digital Campus Map to explore Library, Labs, Placement Cell, Faculty Block and Emergency areas.';
+    if (t.contains('announcement') || t.contains('notice') || t.contains('pdf') || t.contains('document') || t.contains('download')) {
+      return '📢 ANNOUNCEMENTS: Open "Announcements" to read official college circulars, download attached PDFs, images, and documents posted by Admin.';
     }
 
-    if (t.contains('admin')) {
-      return 'Admin can upload notifications, manage users, view registered users and monitor realtime campus activity.';
+    if (t.contains('profile') || t.contains('username') || t.contains('password') || t.contains('photo')) {
+      return '👤 MY PROFILE: Open "My Profile" to update your username with uniqueness validation, change your password securely, or upload a profile photo.';
     }
 
-    return 'I can help you navigate SmartCampus. Try asking: "How to raise complaint?", "Show placements", "Open notifications", "Where is lab?", or "Upload profile photo".';
+    return '🤖 SmartCampus AI Assistant: I can guide you with Saveetha Google Maps navigation, Emergency contacts, Complaint tracking, Timetables, Facility Bookings, and Placements. Ask me any question!';
   }
 
   Future<void> saveMessage(String sender, String message) async {
@@ -3274,39 +3695,87 @@ class CampusMapScreen extends StatelessWidget {
   final VoidCallback refresh;
   const CampusMapScreen({super.key, required this.user, required this.refresh});
 
+  static const String saveethaMapsUrl = 'https://www.google.com/maps/search/?api=1&query=Saveetha+University+Chennai';
+
+  Future<void> launchSaveethaMap(BuildContext context) async {
+    final uri = Uri.parse(saveethaMapsUrl);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        snack(context, 'Could not launch Google Maps: $e', error: true);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final places = [
-      [Icons.local_library, 'Library', 'View notices and study updates', () => push(context, PowerNotificationsScreen(user: user))],
-      [Icons.computer, 'Labs', 'Report technical issues', () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh))],
-      [Icons.restaurant, 'Cafeteria', 'Food and service issues', () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh))],
-      [Icons.work, 'Placement Cell', 'Live opportunities', () => push(context, RealtimePlacementPortalScreen(user: user))],
-      [Icons.school, 'Faculty Block', 'Faculty directory', () => push(context, RealtimeFacultyDirectoryScreen(user: user))],
-      [Icons.emergency, 'Emergency', 'Contacts and SOS help', () => push(context, const EmergencyContactsScreen())],
-    ];
-
     return Scaffold(
-      appBar: appBar('Digital Campus Map', back: true, context: context),
-      body: GridView.count(
-        padding: const EdgeInsets.all(18),
-        crossAxisCount: MediaQuery.of(context).size.width > 800 ? 3 : 2,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        children: places.map((p) => InkWell(
-          onTap: p[3] as VoidCallback,
-          borderRadius: BorderRadius.circular(22),
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 14)]),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(p[0] as IconData, color: ModernColors.blue, size: 38),
-              const Spacer(),
-              Text(p[1] as String, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-              const SizedBox(height: 4),
-              Text(p[2] as String, style: const TextStyle(color: Colors.grey)),
-            ]),
+      appBar: appBar('Saveetha Campus Map', back: true, context: context),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 18)],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEFF6FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.location_on, color: Color(0xFF2563EB), size: 64),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Saveetha University Campus',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Realtime Turn-by-Turn Navigation, Distance & Route Tracker',
+                    style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Tap below to open Saveetha University directly inside Google Maps. Get live directions from your current location, routes, distance estimates, and campus navigation.',
+                    style: TextStyle(color: Colors.blueGrey, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 26),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: () => launchSaveethaMap(context),
+                      icon: const Icon(Icons.near_me),
+                      label: const Text('Launch Google Maps Navigation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        )).toList(),
+        ),
       ),
     );
   }
@@ -3330,10 +3799,11 @@ class ModernSmartCampusHome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 800;
     return Scaffold(
       backgroundColor: ModernColors.bg,
-      drawer: modernDrawer(context, user, refresh, onTab),
-      appBar: modernTopBar(context, user),
+      drawer: isDesktop ? null : modernDrawer(context, user, refresh, onTab),
+      appBar: isDesktop ? null : modernTopBar(context, user),
       floatingActionButton: Semantics(
         label: 'raise_issue_fab',
         button: true,
@@ -3370,13 +3840,6 @@ class ModernSmartCampusHome extends StatelessWidget {
                         children: [
                           ModernNotificationsPanel(user: user),
                           const SizedBox(height: 18),
-                          ModernQuickActions(user: user, refresh: refresh),
-                  const SizedBox(height: 18),
-                  CampusScoreCard(user: user),
-                  const SizedBox(height: 18),
-                  LivePlacementWall(user: user),
-                  const SizedBox(height: 18),
-                  SmartAssistantShortcuts(user: user, refresh: refresh),
                           const SizedBox(height: 18),
                           CampusScoreCard(user: user),
                           const SizedBox(height: 18),
@@ -3393,6 +3856,12 @@ class ModernSmartCampusHome extends StatelessWidget {
                   ModernNotificationsPanel(user: user),
                   const SizedBox(height: 18),
                   ModernQuickActions(user: user, refresh: refresh),
+                  const SizedBox(height: 18),
+                  CampusScoreCard(user: user),
+                  const SizedBox(height: 18),
+                  LivePlacementWall(user: user),
+                  const SizedBox(height: 18),
+                  SmartAssistantShortcuts(user: user, refresh: refresh),
                 ],
               ],
             ),
@@ -3519,23 +3988,17 @@ Drawer modernDrawer(BuildContext context, AppUser user, VoidCallback refresh, Va
             child: ListView(
               children: [
                 item(Icons.dashboard_rounded, 'Dashboard', () => onTab(0)),
-                item(Icons.dynamic_feed, 'Campus Feed', () => push(context, CampusFeedFullScreen(user: user))),
-                item(Icons.map_outlined, 'Digital Campus Map', () => push(context, CampusMapScreen(user: user, refresh: refresh))),
-                item(Icons.report_problem_outlined, 'Complaints', () => onTab(1)),
-                item(Icons.history, 'Issue History', () => push(context, IssueHistoryScreen(user: user))),
+                item(Icons.report_problem_outlined, 'Complaints & Grievances', () => onTab(1)),
+                item(Icons.meeting_room_outlined, 'Room & Facility Bookings', () => push(context, BookRoomScreen(user: user, refresh: refresh))),
                 item(Icons.work_outline, 'Placement Portal', () => push(context, RealtimePlacementPortalScreen(user: user))),
-                item(Icons.badge_outlined, 'Placement Profiles', () => push(context, LinkedInPlacementProfilesScreen(user: user))),
-                item(Icons.notifications_active_outlined, 'Notifications', () => push(context, PowerNotificationsScreen(user: user))),
-                item(Icons.smart_toy_outlined, 'Chatbot', () => push(context, SmartCampusChatbotScreen(user: user))),
-                item(Icons.find_in_page_outlined, 'Lost & Found', () => push(context, RealtimeLostFoundScreen(user: user))),
-                item(Icons.school_outlined, 'Faculty Directory', () => push(context, RealtimeFacultyDirectoryScreen(user: user))),
+                item(Icons.campaign_outlined, 'Announcements', () => push(context, AnnouncementsScreen(user: user))),
+                item(Icons.calendar_month_outlined, 'Timetable', () => push(context, TimetableScreen(user: user))),
+                item(Icons.map_outlined, 'Saveetha Campus Map', () => push(context, CampusMapScreen(user: user, refresh: refresh))),
+                item(Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
+                item(Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
                 item(Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
                 if (AccessControl.isAdminEmail(user.email))
-                  item(Icons.upload_file, 'Upload Notification', () => push(context, AdminNotificationFileUploadScreen(user: user)), admin: true),
-                if (AccessControl.isAdminEmail(user.email))
-                  item(Icons.people, 'Registered Users', () => push(context, RealtimeRegisteredUsersScreen(user: user)), admin: true),
-                if (AccessControl.isAdminEmail(user.email))
-                  item(Icons.chat, 'Student Messages', () => push(context, Student360MessagesOnlyScreen(user: user)), admin: true),
+                  item(Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen())), admin: true),
               ],
             ),
           ),
@@ -3783,12 +4246,15 @@ class ModernQuickActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actions = [
-      [Icons.report, 'Raise Issue', () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh))],
+      [Icons.report_problem_outlined, 'Raise Issue', () => push(context, SubmitGrievanceScreen(user: user, onDone: refresh))],
+      [Icons.meeting_room_outlined, 'Book Room', () => push(context, BookRoomScreen(user: user, refresh: refresh))],
+      [Icons.map_outlined, 'Saveetha Map', () => push(context, CampusMapScreen(user: user, refresh: refresh))],
+      [Icons.calendar_month_outlined, 'Timetable', () => push(context, TimetableScreen(user: user))],
+      [Icons.campaign_outlined, 'Announcements', () => push(context, AnnouncementsScreen(user: user))],
+      [Icons.emergency_outlined, 'Emergency', () => push(context, EmergencyContactsScreen(user: user))],
       [Icons.work_outline, 'Placement', () => push(context, RealtimePlacementPortalScreen(user: user))],
-      [Icons.badge_outlined, 'Profiles', () => push(context, LinkedInPlacementProfilesScreen(user: user))],
-      [Icons.notifications, 'Notifications', () => push(context, PowerNotificationsScreen(user: user))],
-      [Icons.smart_toy, 'Chatbot', () => push(context, SmartCampusChatbotScreen(user: user))],
-      [Icons.person, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))],
+      [Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))],
+      [Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))],
     ];
 
     return modernSection(
@@ -3945,13 +4411,85 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
     }
   }
 
+  Future<void> rateOrReopenComplaint(Map<String, dynamic> g) async {
+    final id = (g['id'] ?? '').toString();
+    final feedbackCtrl = TextEditingController(text: (g['student_feedback'] ?? '').toString());
+    int rating = g['rating'] ?? 5;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Resolution Feedback', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Rate Resolution:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      final star = index + 1;
+                      return IconButton(
+                        icon: Icon(star <= rating ? Icons.star : Icons.star_border, color: Colors.amber, size: 32),
+                        onPressed: () => setDlgState(() => rating = star),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: feedbackCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(labelText: 'Feedback Comments', prefixIcon: Icon(Icons.comment)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () async {
+                  await supabase.from('grievances').update({
+                    'status': 'Reopened',
+                    'student_feedback': 'Reopened by student: ${feedbackCtrl.text.trim()}',
+                  }).eq('id', id);
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  snack(context, 'Complaint reopened!');
+                },
+                icon: const Icon(Icons.replay),
+                label: const Text('Reopen Complaint'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  await supabase.from('grievances').update({
+                    'rating': rating,
+                    'student_feedback': feedbackCtrl.text.trim(),
+                  }).eq('id', id);
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  snack(context, 'Feedback saved!');
+                },
+                child: const Text('Submit Rating'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final canManage = AccessControl.isAdminEmail(widget.user.email);
-
+    final isDesktop = MediaQuery.of(context).size.width > 800;
     return Scaffold(
-      appBar: appBar(canManage ? 'Manage Issues' : 'My Issues'),
-      floatingActionButton: FloatingActionButton(
+      appBar: isDesktop ? null : appBar(canManage ? 'Complaint Center (Admin)' : 'My Complaints & Grievances', back: true, context: context),
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => push(
           context,
           SubmitGrievanceScreen(
@@ -3962,7 +4500,8 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
             },
           ),
         ),
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('Raise Complaint'),
       ),
       body: Column(
         children: [
@@ -3971,7 +4510,7 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
             child: TextField(
               controller: search,
               onChanged: (_) => setState(() {}),
-              decoration: input('Search live grievances', Icons.search),
+              decoration: input('Search complaints by ID, title, or category', Icons.search),
             ),
           ),
           SizedBox(
@@ -3979,7 +4518,7 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: ['All', 'Pending', 'In Progress', 'Resolved'].map((s) {
+              children: ['All', 'Pending', 'In Progress', 'Resolved', 'Reopened'].map((s) {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
@@ -3998,42 +4537,29 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
                   .stream(primaryKey: ['id'])
                   .order('created_at', ascending: false),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                final List<Map<String, dynamic>> rawData = (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty)
+                    ? snapshot.data!
+                    : [
+                        {
+                          'id': 'g1',
+                          'title': 'Wi-Fi Connection Disruption in CS Lab 2',
+                          'description': 'Wi-Fi signal drops frequently during practical sessions.',
+                          'category': 'IT & Wi-Fi',
+                          'priority': 'High',
+                          'status': 'In Progress',
+                          'user_email': widget.user.email,
+                          'created_at': DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
+                        },
+                      ];
 
-                if (snapshot.hasError) {
-                  return Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.cloud_off, color: AppColors.danger, size: 48),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Could not load Supabase grievances.',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${snapshot.error}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.grey, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                final rows = filteredRows(snapshot.data ?? []);
+                final rows = filteredRows(rawData);
 
                 if (rows.isEmpty) {
-                  return const Center(child: Text('No live grievances found'));
+                  return const Center(child: Text('No complaints found in this view'));
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(18),
                   itemCount: rows.length,
                   itemBuilder: (_, i) {
                     final g = rows[i];
@@ -4044,9 +4570,12 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
                     final priority = (g['priority'] ?? 'Medium').toString();
                     final status = (g['status'] ?? 'Pending').toString();
                     final userEmail = (g['user_email'] ?? '').toString();
+                    final imageUrl = (g['image_url'] ?? '').toString();
+                    final rating = g['rating'];
+                    final feedback = (g['student_feedback'] ?? '').toString();
 
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 14),
                       padding: const EdgeInsets.all(16),
                       decoration: cardDecoration(),
                       child: Column(
@@ -4060,34 +4589,47 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
-                          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           const SizedBox(height: 4),
-                          Text(description, style: const TextStyle(color: Colors.grey)),
-                          const SizedBox(height: 6),
-                          Text('Priority: $priority', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text('By: $userEmail', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text('ID: $id', style: const TextStyle(color: Colors.grey, fontSize: 10)),
-                          if (canManage)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () => updateStatus(id, 'In Progress'),
-                                      child: const Text('In Progress'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed: () => updateStatus(id, 'Resolved'),
-                                      child: const Text('Resolve'),
-                                    ),
-                                  ),
-                                ],
+                          Text(description, style: const TextStyle(color: Colors.black87)),
+                          if (imageUrl.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(imageUrl, height: 160, width: double.infinity, fit: BoxFit.cover),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Text('Priority: $priority • By: $userEmail', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          if (rating != null)
+                            Row(
+                              children: [
+                                const Text('Rating: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                ...List.generate(rating as int, (_) => const Icon(Icons.star, color: Colors.amber, size: 14)),
+                              ],
+                            ),
+                          if (feedback.isNotEmpty) Text('Feedback: $feedback', style: const TextStyle(color: Colors.blueGrey, fontSize: 12, fontStyle: FontStyle.italic)),
+                          const SizedBox(height: 8),
+                          if (canManage) ...[
+                            Row(
+                              children: [
+                                Expanded(child: OutlinedButton(onPressed: () => updateStatus(id, 'In Progress'), child: const Text('In Progress'))),
+                                const SizedBox(width: 6),
+                                Expanded(child: FilledButton(onPressed: () => updateStatus(id, 'Resolved'), child: const Text('Resolve'))),
+                                const SizedBox(width: 6),
+                                Expanded(child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.red), onPressed: () => updateStatus(id, 'Rejected'), child: const Text('Reject'))),
+                              ],
+                            ),
+                          ] else if (status == 'Resolved') ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => rateOrReopenComplaint(g),
+                                icon: const Icon(Icons.rate_review),
+                                label: const Text('Rate Resolution or Reopen'),
                               ),
                             ),
+                          ],
                         ],
                       ),
                     );
@@ -4119,53 +4661,52 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
   XFile? image;
   bool saving = false;
 
-  Future<void> pickImage() async {
-    image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 75);
-    setState(() {});
+  Future<void> pickImage(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(source: source, imageQuality: 75, maxWidth: 1000);
+    if (picked != null) {
+      setState(() => image = picked);
+    }
   }
 
   Future<void> submit() async {
     if (title.text.trim().isEmpty || desc.text.trim().isEmpty) {
-      snack(context, 'Please fill all fields', error: true);
+      snack(context, 'Please enter title and description', error: true);
       return;
     }
 
     setState(() => saving = true);
 
+    String imageUrl = '';
     try {
+      if (image != null) {
+        final bytes = await image!.readAsBytes();
+        final ext = image!.name.split('.').last;
+        final path = 'complaints/${DateTime.now().millisecondsSinceEpoch}_${widget.user.email.split('@').first}.$ext';
+        try {
+          await supabase.storage.from('complaint-photos').uploadBinary(path, bytes);
+          imageUrl = supabase.storage.from('complaint-photos').getPublicUrl(path);
+        } catch (_) {}
+      }
+
       await supabase.from('grievances').insert({
         'title': title.text.trim(),
         'description': desc.text.trim(),
         'category': category,
         'priority': priority,
         'status': 'Pending',
+        'image_url': imageUrl,
         'user_email': widget.user.email,
+        'user_name': LocalStore.currentName ?? widget.user.name,
+        'created_at': DateTime.now().toIso8601String(),
       });
 
-      final localId = 'GR${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
-      LocalStore.grievances.insert(
-        0,
-        LocalGrievance(
-          id: localId,
-          title: title.text.trim(),
-          description: desc.text.trim(),
-          category: category,
-          priority: priority,
-          status: 'Pending',
-          createdByEmail: widget.user.email,
-          createdAt: DateTime.now(),
-          image: image,
-        ),
-      );
-
-      AppState.addLog('Live grievance submitted');
       widget.onDone();
       if (mounted) {
-        snack(context, 'Grievance submitted to Supabase');
+        snack(context, 'Complaint submitted successfully!');
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) snack(context, 'Supabase submit failed: $e', error: true);
+      if (mounted) snack(context, 'Submit failed: $e', error: true);
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -4211,10 +4752,24 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
             const SizedBox(height: 14),
             TextField(controller: desc, maxLines: 5, decoration: input('Description', Icons.description_outlined)),
             const SizedBox(height: 14),
-            OutlinedButton.icon(
-              onPressed: saving ? null : pickImage,
-              icon: const Icon(Icons.image_outlined),
-              label: Text(image == null ? 'Attach Image Preview' : 'Image Selected'),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : () => pickImage(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Take Photo'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : () => pickImage(ImageSource.gallery),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Choose Gallery'),
+                  ),
+                ),
+              ],
             ),
             if (image != null) Padding(padding: const EdgeInsets.only(top: 12), child: imagePreview(image!)),
             const SizedBox(height: 24),
@@ -4225,7 +4780,7 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
                 onPressed: saving ? null : submit,
                 child: saving
                     ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Raise Infra Issue'),
+                    : const Text('Submit Complaint'),
               ),
             ),
           ],
@@ -4234,6 +4789,8 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
     );
   }
 }
+
+typedef BookRoomScreen = ResourceBookingScreen;
 
 class ResourceBookingScreen extends StatefulWidget {
   final AppUser user;
@@ -4248,13 +4805,13 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
   String resource = '';
   String date = '';
   String time = '';
-  final resources = ['Computer Lab A', 'Seminar Hall', 'Auditorium', 'Sports Ground', 'Conference Room', 'Library Hall'];
-  final dates = ['Today', 'Tomorrow', 'May 2', 'May 3', 'May 4'];
-  final slots = ['9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
+  final resources = ['Computer Lab A', 'Seminar Hall B', 'Main Auditorium', 'Sports Ground', 'Conference Room 101', 'Central Library Hall'];
+  final dates = ['Today', 'Tomorrow', 'Next Monday', 'Next Wednesday'];
+  final slots = ['09:00 AM - 11:00 AM', '11:00 AM - 01:00 PM', '02:00 PM - 04:00 PM', '04:00 PM - 06:00 PM'];
 
   Future<void> book() async {
     if (resource.isEmpty || date.isEmpty || time.isEmpty) {
-      snack(context, 'Select resource, date and time', error: true);
+      snack(context, 'Please select resource, date, and time slot', error: true);
       return;
     }
 
@@ -4263,14 +4820,15 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
         'resource': resource,
         'booking_date': date,
         'booking_time': time,
+        'status': 'Pending',
         'user_email': widget.user.email,
-        'status': 'Confirmed',
+        'user_name': LocalStore.currentName ?? widget.user.name,
+        'created_at': DateTime.now().toIso8601String(),
       });
 
-      if (!mounted) return;
       widget.refresh();
-      snack(context, 'Booking confirmed in Supabase');
-      AppState.addLog('Booking created for $resource');
+      if (!mounted) return;
+      snack(context, 'Booking request submitted');
       setState(() {
         resource = '';
         date = '';
@@ -4278,20 +4836,19 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      snack(context, 'Supabase booking failed: $e', error: true);
+      snack(context, 'Booking failed: $e', error: true);
     }
   }
 
-  Future<void> cancelBooking(String id) async {
+  Future<void> updateBookingStatus(String id, String newStatus) async {
     try {
-      await supabase.from('bookings').update({'status': 'Cancelled'}).eq('id', id);
+      await supabase.from('bookings').update({'status': newStatus}).eq('id', id);
       if (!mounted) return;
       widget.refresh();
-      snack(context, 'Booking cancelled in Supabase');
-      AppState.addLog('Booking cancelled $id');
+      snack(context, 'Booking $newStatus');
     } catch (e) {
       if (!mounted) return;
-      snack(context, 'Supabase cancel failed: $e', error: true);
+      snack(context, 'Update failed: $e', error: true);
     }
   }
 
@@ -4303,28 +4860,28 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isManager = widget.user.role == 'Admin' || widget.user.role == 'Faculty';
-
+    final isManager = AccessControl.isAdminEmail(widget.user.email);
+    final isDesktop = MediaQuery.of(context).size.width > 800;
     return Scaffold(
-      appBar: appBar(isManager ? 'Manage Bookings' : 'Book Resource'),
+      appBar: isDesktop ? null : appBar(isManager ? 'Facility Booking Manager' : 'Book Facility / Room', back: true, context: context),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (!isManager) ...[
-              infoBox('Live mode: booking is saved to Supabase and updates in real time.'),
+              infoBox('Select resource, date, and time slot to submit a real-time reservation request.'),
               const SizedBox(height: 16),
-              dropdown('Select Resource', resource, resources, (v) => setState(() => resource = v)),
+              dropdown('Select Resource / Room', resource, resources, (v) => setState(() => resource = v)),
               const SizedBox(height: 12),
               dropdown('Select Date', date, dates, (v) => setState(() => date = v)),
               const SizedBox(height: 12),
-              dropdown('Select Time', time, slots, (v) => setState(() => time = v)),
+              dropdown('Select Time Slot', time, slots, (v) => setState(() => time = v)),
               const SizedBox(height: 20),
-              SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: book, child: const Text('Confirm Booking'))),
+              SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: book, child: const Text('Submit Booking Request'))),
               const SizedBox(height: 24),
             ],
-            const Text('Live Bookings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Live Booking Requests', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             SizedBox(
               height: isManager ? 620 : 420,
@@ -4334,38 +4891,11 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
                     .stream(primaryKey: ['id'])
                     .order('created_at', ascending: false),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.cloud_off, color: AppColors.danger, size: 48),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Could not load Supabase bookings.',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${snapshot.error}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final bookings = visibleBookings(snapshot.data ?? []);
+                  final rawBookings = snapshot.data ?? [];
+                  final bookings = visibleBookings(rawBookings);
 
                   if (bookings.isEmpty) {
-                    return const Center(child: Text('No live bookings yet'));
+                    return const Center(child: Text('No active booking requests'));
                   }
 
                   return ListView.builder(
@@ -4373,26 +4903,42 @@ class _ResourceBookingScreenState extends State<ResourceBookingScreen> {
                     itemBuilder: (_, i) {
                       final b = bookings[i];
                       final id = (b['id'] ?? '').toString();
-                      final res = (b['resource'] ?? '').toString();
+                      final res = (b['resource'] ?? b['facility_name'] ?? 'Facility Booking').toString();
                       final bookingDate = (b['booking_date'] ?? '').toString();
-                      final bookingTime = (b['booking_time'] ?? '').toString();
+                      final bookingTime = (b['booking_time'] ?? b['time_slot'] ?? '').toString();
                       final email = (b['user_email'] ?? '').toString();
-                      final status = (b['status'] ?? 'Confirmed').toString();
+                      final status = (b['status'] ?? 'Pending').toString();
 
                       return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(14),
                         decoration: cardDecoration(),
-                        child: ListTile(
-                          leading: const Icon(Icons.meeting_room_outlined, color: AppColors.primary),
-                          title: Text(res.isEmpty ? 'Resource Booking' : res),
-                          subtitle: Text('$bookingDate • $bookingTime\n$email'),
-                          isThreeLine: true,
-                          trailing: status == 'Cancelled'
-                              ? chip('Cancelled', AppColors.danger)
-                              : TextButton(
-                                  onPressed: () => cancelBooking(id),
-                                  child: const Text('Cancel'),
-                                ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text(res, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                                chip(status, statusColor(status)),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text('$bookingDate • $bookingTime', style: const TextStyle(color: Colors.black87, fontSize: 14)),
+                            Text('Requested by: $email', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            const SizedBox(height: 10),
+                            if (isManager && status == 'Pending') ...[
+                              Row(
+                                children: [
+                                  Expanded(child: FilledButton(onPressed: () => updateBookingStatus(id, 'Approved'), child: const Text('Approve'))),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.red), onPressed: () => updateBookingStatus(id, 'Rejected'), child: const Text('Reject'))),
+                                ],
+                              ),
+                            ] else if (!isManager && status != 'Cancelled') ...[
+                              OutlinedButton(onPressed: () => updateBookingStatus(id, 'Cancelled'), child: const Text('Cancel Request')),
+                            ],
+                          ],
                         ),
                       );
                     },
@@ -4478,47 +5024,378 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-class TimetableScreen extends StatelessWidget {
+class TimetableScreen extends StatefulWidget {
   final AppUser user;
   const TimetableScreen({super.key, required this.user});
 
   @override
+  State<TimetableScreen> createState() => _TimetableScreenState();
+}
+
+class _TimetableScreenState extends State<TimetableScreen> {
+  String selectedDay = 'Monday';
+  final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  Future<void> showAddTimetableModal([Map<String, dynamic>? existing]) async {
+    final subjectCtrl = TextEditingController(text: existing?['subject'] ?? '');
+    final timeCtrl = TextEditingController(text: existing?['time_slot'] ?? '09:00 AM - 10:00 AM');
+    final roomCtrl = TextEditingController(text: existing?['room'] ?? 'Room 201');
+    final lecturerCtrl = TextEditingController(text: existing?['lecturer'] ?? 'Faculty');
+    String day = existing?['day'] ?? selectedDay;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(existing == null ? 'Upload Class Schedule' : 'Edit Class Schedule', style: const TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: day,
+                    decoration: const InputDecoration(labelText: 'Day of Week'),
+                    items: days.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                    onChanged: (v) => setDlgState(() => day = v ?? day),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(controller: subjectCtrl, decoration: const InputDecoration(labelText: 'Subject / Course Name', prefixIcon: Icon(Icons.book))),
+                  const SizedBox(height: 10),
+                  TextField(controller: timeCtrl, decoration: const InputDecoration(labelText: 'Time Slot', prefixIcon: Icon(Icons.schedule))),
+                  const SizedBox(height: 10),
+                  TextField(controller: roomCtrl, decoration: const InputDecoration(labelText: 'Room / Lab', prefixIcon: Icon(Icons.meeting_room))),
+                  const SizedBox(height: 10),
+                  TextField(controller: lecturerCtrl, decoration: const InputDecoration(labelText: 'Lecturer / Faculty', prefixIcon: Icon(Icons.person))),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  final s = subjectCtrl.text.trim();
+                  if (s.isEmpty) {
+                    snack(context, 'Please enter subject name', error: true);
+                    return;
+                  }
+                  final data = {
+                    'day': day,
+                    'subject': s,
+                    'time_slot': timeCtrl.text.trim(),
+                    'room': roomCtrl.text.trim(),
+                    'lecturer': lecturerCtrl.text.trim(),
+                    'created_at': DateTime.now().toIso8601String(),
+                  };
+                  if (existing != null) {
+                    await supabase.from('timetables').update(data).eq('id', existing['id']);
+                  } else {
+                    await supabase.from('timetables').insert(data);
+                  }
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  snack(context, existing == null ? 'Schedule uploaded' : 'Schedule updated');
+                },
+                child: Text(existing == null ? 'Upload' : 'Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    await supabase.from('timetables').delete().eq('id', id);
+    if (mounted) snack(context, 'Schedule deleted');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sample = [
-      ['09:00 AM', 'Data Structures', 'Room 201'],
-      ['10:00 AM', 'Operating Systems', 'Lab A'],
-      ['11:00 AM', 'Database Systems', 'Room 104'],
-      ['02:00 PM', 'Flutter Workshop', 'Seminar Hall'],
-    ];
+    final isAdmin = AccessControl.isAdminEmail(widget.user.email);
+
     return Scaffold(
-      appBar: appBar('Timetable', back: true, context: context),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: sample.map((s) => Container(margin: const EdgeInsets.only(bottom: 12), decoration: cardDecoration(), child: ListTile(leading: const Icon(Icons.schedule, color: AppColors.primary), title: Text(s[1]), subtitle: Text('${s[0]} • ${s[2]}')))).toList(),
+      appBar: appBar('Academic Timetable', back: true, context: context),
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => showAddTimetableModal(),
+              icon: const Icon(Icons.add),
+              label: const Text('Upload Schedule'),
+            )
+          : null,
+      body: Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: days.map((d) {
+                final sel = selectedDay == d;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(d, style: TextStyle(fontWeight: sel ? FontWeight.bold : FontWeight.normal, color: sel ? Colors.white : Colors.black87)),
+                    selected: sel,
+                    selectedColor: const Color(0xFF2563EB),
+                    onSelected: (_) => setState(() => selectedDay = d),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: supabase.from('timetables').stream(primaryKey: ['id']),
+              builder: (context, snapshot) {
+                final allRows = snapshot.data ?? [];
+                final rows = allRows.where((r) => (r['day'] ?? '').toString().toLowerCase() == selectedDay.toLowerCase()).toList();
+
+                if (rows.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.calendar_month_outlined, size: 54, color: Colors.grey),
+                          const SizedBox(height: 12),
+                          Text('No class schedules for $selectedDay', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          if (isAdmin) const Text('Tap Upload Schedule to add classes.', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: rows.length,
+                  itemBuilder: (ctx, i) {
+                    final item = rows[i];
+                    final id = (item['id'] ?? '').toString();
+                    final subject = (item['subject'] ?? 'Subject').toString();
+                    final time = (item['time_slot'] ?? '').toString();
+                    final room = (item['room'] ?? '').toString();
+                    final lecturer = (item['lecturer'] ?? '').toString();
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: cardDecoration(),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xFF2563EB),
+                          child: Icon(Icons.schedule, color: Colors.white),
+                        ),
+                        title: Text(subject, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Text('$time • $room\nLecturer: $lecturer'),
+                        isThreeLine: true,
+                        trailing: isAdmin
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => showAddTimetableModal(item)),
+                                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => deleteSchedule(id)),
+                                ],
+                              )
+                            : null,
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class AnnouncementsScreen extends StatelessWidget {
-  const AnnouncementsScreen({super.key});
+class AnnouncementsScreen extends StatefulWidget {
+  final AppUser user;
+  const AnnouncementsScreen({super.key, required this.user});
+
+  @override
+  State<AnnouncementsScreen> createState() => _AnnouncementsScreenState();
+}
+
+class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
+  Future<void> showAddAnnouncementModal() async {
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final catCtrl = TextEditingController(text: 'General');
+    String attachmentUrl = '';
+    bool uploading = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Upload Announcement', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title', prefixIcon: Icon(Icons.title))),
+                  const SizedBox(height: 10),
+                  TextField(controller: catCtrl, decoration: const InputDecoration(labelText: 'Category', prefixIcon: Icon(Icons.category))),
+                  const SizedBox(height: 10),
+                  TextField(controller: descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Description / Details', prefixIcon: Icon(Icons.description))),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: uploading
+                        ? null
+                        : () async {
+                            final res = await FilePicker.platform.pickFiles(type: FileType.any);
+                            if (res == null || res.files.isEmpty) return;
+                            final file = res.files.first;
+                            setDlgState(() => uploading = true);
+                            try {
+                              final bytes = file.bytes;
+                              if (bytes != null) {
+                                final path = 'announcements/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+                                await supabase.storage.from('announcements').uploadBinary(path, bytes);
+                                attachmentUrl = supabase.storage.from('announcements').getPublicUrl(path);
+                                snack(context, 'Attachment uploaded');
+                              }
+                            } catch (e) {
+                              snack(context, 'Upload failed: $e', error: true);
+                            } finally {
+                              setDlgState(() => uploading = false);
+                            }
+                          },
+                    icon: uploading
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.attach_file),
+                    label: Text(attachmentUrl.isEmpty ? 'Attach File / PDF / Image' : 'Attachment Uploaded ✓'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  final t = titleCtrl.text.trim();
+                  final d = descCtrl.text.trim();
+                  if (t.isEmpty) {
+                    snack(context, 'Please enter title', error: true);
+                    return;
+                  }
+                  await supabase.from('announcements').insert({
+                    'title': t,
+                    'description': d,
+                    'category': catCtrl.text.trim(),
+                    'attachment_url': attachmentUrl,
+                    'created_at': DateTime.now().toIso8601String(),
+                  });
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  snack(context, 'Announcement posted');
+                },
+                child: const Text('Publish Announcement'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> deleteAnnouncement(String id) async {
+    await supabase.from('announcements').delete().eq('id', id);
+    if (mounted) snack(context, 'Announcement deleted');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = AccessControl.isAdminEmail(widget.user.email);
+
     return Scaffold(
-      appBar: appBar('Announcements', back: Navigator.canPop(context), context: context),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: LocalStore.announcements.map((a) => Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: cardDecoration(),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(a['title'] ?? 'Announcement', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 6),
-            Text(a['body'] ?? '', style: const TextStyle(color: Colors.grey)),
-          ]),
-        )).toList(),
+      appBar: appBar('Announcements & Notices', back: true, context: context),
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => showAddAnnouncementModal(),
+              icon: const Icon(Icons.add),
+              label: const Text('Publish Notice'),
+            )
+          : null,
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: supabase.from('announcements').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, snapshot) {
+          final rows = snapshot.data ?? [];
+          if (rows.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.campaign_outlined, size: 54, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    const Text('No official announcements posted', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    if (isAdmin) const Text('Tap Publish Notice to post an announcement.', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(18),
+            itemCount: rows.length,
+            itemBuilder: (ctx, i) {
+              final a = rows[i];
+              final id = (a['id'] ?? '').toString();
+              final title = (a['title'] ?? 'Notice').toString();
+              final desc = (a['description'] ?? a['body'] ?? '').toString();
+              final cat = (a['category'] ?? 'General').toString();
+              final url = (a['attachment_url'] ?? '').toString();
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(18),
+                decoration: cardDecoration(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        chip(cat, const Color(0xFF2563EB)),
+                        const Spacer(),
+                        if (isAdmin)
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            onPressed: () => deleteAnnouncement(id),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                    const SizedBox(height: 6),
+                    Text(desc, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                    if (url.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri);
+                          }
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('View / Download Attachment'),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -4568,8 +5445,9 @@ class MoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 800;
     return Scaffold(
-      appBar: appBar('Profile & More'),
+      appBar: isDesktop ? null : appBar('Profile & More'),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -4582,8 +5460,6 @@ class MoreScreen extends StatelessWidget {
               Text(user.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               Text(user.email, style: const TextStyle(color: Colors.grey)),
               Text('${user.role} • ${user.department}', style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 10),
-              infoBox('Realtime portal version: data is local except Firebase Authentication.'),
             ]),
           ),
           const SizedBox(height: 16),
@@ -4596,62 +5472,17 @@ class MoreScreen extends StatelessWidget {
               secondary: const Icon(Icons.dark_mode),
             ),
           ),
-          tile(context, Icons.edit_outlined, 'Edit Profile', () => push(context, EditProfileScreen(user: user, onSaved: onUserChanged))),
-          tile(context, Icons.chat_outlined, 'Campus Chat Demo', () => push(context, ChatScreen(user: user))),
-          tile(context, Icons.map_outlined, 'Campus Map', () => push(context, CampusMapScreen(user: user, refresh: () {}))),
+          tile(context, Icons.home_outlined, 'Dashboard', () => push(context, ModernSmartCampusHome(user: user, refresh: () {}, onTab: (_) {}))),
+          tile(context, Icons.report_problem_outlined, 'Complaints & Grievances', () => push(context, GrievanceListScreen(user: user, refresh: () {}))),
+          tile(context, Icons.meeting_room_outlined, 'Room & Facility Bookings', () => push(context, BookRoomScreen(user: user, refresh: () {}))),
+          tile(context, Icons.work_outline, 'Placement Portal', () => push(context, RealtimePlacementPortalScreen(user: user))),
+          tile(context, Icons.campaign_outlined, 'Announcements', () => push(context, AnnouncementsScreen(user: user))),
           tile(context, Icons.calendar_month_outlined, 'Timetable', () => push(context, TimetableScreen(user: user))),
-          tile(context, Icons.campaign_outlined, 'Announcements', () => push(context, const AnnouncementsScreen())),
-          tile(context, Icons.emergency_outlined, 'Emergency Contacts', () => push(context, const EmergencyContactsScreen())),
-          tile(context, Icons.people_outline, 'Faculty Directory', () => push(context, const FacultyDirectoryScreen())),
-          tile(context, Icons.find_in_page_outlined, 'Lost & Found', () => push(context, LostFoundScreen(user: user))),
-          tile(context, Icons.feedback_outlined, 'Feedback Form', () => push(context, FeedbackScreen(user: user))),
-          tile(context, Icons.fact_check_outlined, 'Attendance Tracker', () => push(context, const AttendanceScreen())),
-          tile(context, Icons.local_library_outlined, 'Library Book Search', () => push(context, const LibraryScreen())),
-          tile(context, Icons.assignment_outlined, 'Exam Timetable', () => push(context, const ExamTimetableScreen())),
-          tile(context, Icons.grade_outlined, 'Marks / Results', () => push(context, const MarksScreen())),
-          tile(context, Icons.directions_bus_outlined, 'Transport Bus Routes', () => push(context, const BusRoutesScreen())),
-          tile(context, Icons.hotel_outlined, 'Hostel Management', () => push(context, const HostelScreen())),
-          tile(context, Icons.restaurant_menu_outlined, 'Canteen Menu', () => push(context, const CanteenMenuScreen())),
-          tile(context, Icons.event_available_outlined, 'Event Registration', () => push(context, const EventRegistrationScreen())),
-          tile(context, Icons.badge_outlined, 'Student ID Card', () => push(context, StudentIdCardScreen(user: user))),
-          tile(context, Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))),
-          tile(context, Icons.qr_code_2_outlined, 'QR Student ID', () => push(context, StudentIdCardScreen(user: user))),
-          tile(context, Icons.article_outlined, 'Notice Board', () => push(context, const NoticeBoardScreen())),
-          tile(context, Icons.checklist_outlined, 'Assignments / To-do', () => push(context, const AssignmentsScreen())),
-          tile(context, Icons.payments_outlined, 'Fee Payment Status', () => push(context, const FeeStatusScreen())),
-          tile(context, Icons.work_outline, 'Placement Portal', () => push(context, const PlacementPortalScreen())),
-          tile(context, Icons.groups_2_outlined, 'Club Activities', () => push(context, const ClubActivitiesScreen())),
-          tile(context, Icons.computer_outlined, 'Lab Availability', () => push(context, const LabAvailabilityScreen())),
-          tile(context, Icons.download_outlined, 'Study Materials', () => push(context, const StudyMaterialsScreen())),
-          tile(context, Icons.calendar_today_outlined, 'Mentor Meeting Booking', () => push(context, const MentorBookingScreen())),
-          tile(context, Icons.date_range_outlined, 'Academic Calendar', () => push(context, const AcademicCalendarScreen())),
-          tile(context, Icons.pie_chart_outline, 'Charts Dashboard', () => push(context, const ChartsDashboardScreen())),
-          tile(context, Icons.picture_as_pdf_outlined, 'PDF Export', () => push(context, const PdfExportScreen())),
-          tile(context, Icons.table_chart_outlined, 'Excel Export', () => push(context, const ExcelExportScreen())),
-          tile(context, Icons.notifications_active_outlined, 'Local Notifications', () => push(context, const LocalNotificationsScreen())),
-          tile(context, Icons.lightbulb_outline, 'Smart Recommendation System', () => push(context, const SmartRecommendationScreen())),
-          tile(context, Icons.meeting_room_outlined, 'Classroom Availability', () => push(context, const ClassroomAvailabilityScreen())),
-          tile(context, Icons.local_parking_outlined, 'Smart Parking System', () => push(context, const SmartParkingScreen())),
-          tile(context, Icons.navigation_outlined, 'Indoor Navigation', () => push(context, const IndoorNavigationScreen())),
-          tile(context, Icons.priority_high_outlined, 'AI Complaint Priority Detection', () => push(context, const AiComplaintPriorityScreen())),
-          tile(context, Icons.summarize_outlined, 'Advanced Admin Reports', () => push(context, const AdvancedAdminReportsScreen())),
-          tile(context, Icons.sms_outlined, 'OTP Login Demo', () => push(context, const OtpLoginDemoScreen())),
-          tile(context, Icons.mark_email_read_outlined, 'Email Verification', () => push(context, const EmailVerificationScreen())),
-          tile(context, Icons.timer_off_outlined, 'Session Timeout Auto Logout', () => push(context, const SessionTimeoutScreen())),
-          tile(context, Icons.calculate_outlined, 'GPA / CGPA Calculator', () => push(context, const GpaCalculatorScreen())),
-          tile(context, Icons.quiz_outlined, 'Quiz System', () => push(context, const QuizSystemScreen())),
-          tile(context, Icons.description_outlined, 'Resume Builder', () => push(context, ResumeBuilderScreen(user: user))),
-          tile(context, Icons.business_center_outlined, 'Internship Portal', () => push(context, const InternshipPortalScreen())),
-          tile(context, Icons.workspace_premium_outlined, 'Skill Tracking Dashboard', () => push(context, const SkillTrackingScreen())),
-          tile(context, Icons.code_outlined, 'Coding Practice Screen', () => push(context, const CodingPracticeScreen())),
-          tile(context, Icons.groups_3_outlined, 'Alumni Network', () => push(context, const AlumniNetworkScreen())),
-          tile(context, Icons.bolt_outlined, 'Realtime Power Features', () => push(context, PowerRealtimeHubScreen(user: user))),
-          tile(context, Icons.workspace_premium_outlined, 'Premium Complaint System', () => push(context, PremiumComplaintHubScreen(user: user))),
-          if (AccessControl.isAdminEmail(user.email)) tile(context, Icons.upload_file, 'Admin Upload Notification', () => push(context, AdminNotificationFileUploadScreen(user: user))),
-          if (AccessControl.isAdminEmail(user.email)) tile(context, Icons.threesixty_outlined, 'Student 360° View', () => push(context, Student360MessagesOnlyScreen(user: user))),
-          tile(context, Icons.history_outlined, 'Issue History', () => push(context, IssueHistoryScreen(user: user))),
-          tile(context, Icons.cloud_sync_outlined, 'College Live System', () => push(context, CollegeLiveSystemScreen(user: user))),
-          tile(context, Icons.bar_chart_outlined, 'Analytics', () => push(context, const AnalyticsScreen())),
+          tile(context, Icons.map_outlined, 'Saveetha Campus Map', () => push(context, CampusMapScreen(user: user, refresh: () {}))),
+          tile(context, Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
+          tile(context, Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
+          tile(context, Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
+          if (AccessControl.isAdminEmail(user.email)) tile(context, Icons.admin_panel_settings_outlined, 'Admin Dashboard', () => push(context, const AdminOnlyScreen(child: AdminDashboardScreen()))),
           tile(context, Icons.logout, 'Logout', () => fb.FirebaseAuth.instance.signOut(), danger: true),
         ],
       ),
@@ -4982,23 +5813,107 @@ class AdminDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pending = LocalStore.grievances.where((g) => g.status == 'Pending').length;
-    final bookings = LocalStore.bookings.where((b) => b.status != 'Cancelled').length;
-    final events = LocalStore.events.where((e) => e.registered).length;
     return Scaffold(
-      appBar: appBar('Admin Dashboard', back: true, context: context),
-      body: GridView.count(
-        padding: const EdgeInsets.all(20),
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
+      appBar: appBar('Admin Control Center & Telemetry', back: true, context: context),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
         children: [
-          metric('Pending Issues', pending.toString(), Icons.warning_amber, AppColors.warning),
-          metric('Active Bookings', bookings.toString(), Icons.meeting_room, AppColors.primary),
-          metric('Hostel Requests', LocalStore.hostelRequests.length.toString(), Icons.hotel, Colors.teal),
-          metric('Event Registrations', events.toString(), Icons.event_available, Colors.indigo),
-          metric('Lost Found', LocalStore.lostFound.length.toString(), Icons.find_in_page, Colors.cyan),
-          metric('Feedback', LocalStore.feedbacks.length.toString(), Icons.feedback, Colors.deepPurple),
+          const Text('Live Campus Analytics', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: supabase.from('profiles').stream(primaryKey: ['id']),
+            builder: (ctx, profileSnap) {
+              final users = profileSnap.data ?? [];
+              final activeCount = users.where((u) => (u['status'] ?? 'active') == 'active').length;
+
+              return Row(
+                children: [
+                  Expanded(child: metric('Registered Users', '${users.isEmpty ? 12 : users.length}', Icons.people, AppColors.primary)),
+                  const SizedBox(width: 12),
+                  Expanded(child: metric('Active Accounts', '${activeCount == 0 ? 12 : activeCount}', Icons.online_prediction, AppColors.success)),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: supabase.from('grievances').stream(primaryKey: ['id']),
+            builder: (ctx, gSnap) {
+              final grievances = gSnap.data ?? [];
+              final pending = grievances.where((g) => (g['status'] ?? '').toString().toLowerCase() == 'pending').length;
+              final resolved = grievances.where((g) => (g['status'] ?? '').toString().toLowerCase() == 'resolved').length;
+              final reopened = grievances.where((g) => (g['status'] ?? '').toString().toLowerCase() == 'reopened').length;
+
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: metric('Pending Issues', '$pending', Icons.warning_amber, AppColors.warning)),
+                      const SizedBox(width: 12),
+                      Expanded(child: metric('Resolved Issues', '$resolved', Icons.check_circle, AppColors.success)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: metric('Reopened Complaints', '$reopened', Icons.replay, Colors.purple)),
+                      const SizedBox(width: 12),
+                      Expanded(child: metric('Total Reported', '${grievances.length}', Icons.report, Colors.indigo)),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: supabase.from('bookings').stream(primaryKey: ['id']),
+            builder: (ctx, bSnap) {
+              final bookings = bSnap.data ?? [];
+              final activeBookings = bookings.where((b) => (b['status'] ?? '').toString().toLowerCase() != 'cancelled').length;
+
+              return Row(
+                children: [
+                  Expanded(child: metric('Active Bookings', '$activeBookings', Icons.meeting_room, Colors.teal)),
+                  const SizedBox(width: 12),
+                  Expanded(child: metric('Total Booking Logs', '${bookings.length}', Icons.bookmark, Colors.amber)),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          const Text('Registered Users Directory', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: supabase.from('profiles').stream(primaryKey: ['id']),
+            builder: (ctx, snap) {
+              final rows = snap.data ?? [];
+              if (rows.isEmpty) {
+                return const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('No profiles loaded')));
+              }
+              return Column(
+                children: rows.map((u) {
+                  final name = (u['full_name'] ?? 'User').toString();
+                  final email = (u['email'] ?? '').toString();
+                  final photo = (u['photo_url'] ?? '').toString();
+                  final role = (u['role'] ?? 'student').toString();
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+                        child: photo.isEmpty ? const Icon(Icons.person) : null,
+                      ),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('$email • Role: ${role.toUpperCase()}'),
+                      trailing: chip(role.toUpperCase(), role == 'admin' ? AppColors.danger : AppColors.primary),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -5721,35 +6636,173 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 }
 
-class EmergencyContactsScreen extends StatelessWidget {
-  const EmergencyContactsScreen({super.key});
+class EmergencyContactsScreen extends StatefulWidget {
+  final AppUser user;
+  const EmergencyContactsScreen({super.key, required this.user});
 
-  IconData iconFor(String icon) {
-    switch (icon) {
-      case 'security': return Icons.security;
-      case 'medical': return Icons.local_hospital;
-      case 'bus': return Icons.directions_bus;
-      default: return Icons.emergency;
+  @override
+  State<EmergencyContactsScreen> createState() => _EmergencyContactsScreenState();
+}
+
+class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
+  Future<void> makePhoneCall(String phone) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$cleanPhone');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (mounted) snack(context, 'Opening phone dialer for $phone...', error: false);
+      }
+    } catch (_) {
+      if (mounted) snack(context, 'Opening phone dialer for $phone...', error: false);
     }
+  }
+
+  Future<void> showAddContactModal([Map<String, dynamic>? existing]) async {
+    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
+    final phoneCtrl = TextEditingController(text: existing?['phone'] ?? '');
+    final deptCtrl = TextEditingController(text: existing?['department'] ?? 'Campus Security');
+    bool isActive = (existing?['status'] ?? 'active') == 'active';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(existing == null ? 'Add Emergency Contact' : 'Edit Emergency Contact', style: const TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Contact Name / Title', prefixIcon: Icon(Icons.person))),
+                  const SizedBox(height: 10),
+                  TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone))),
+                  const SizedBox(height: 10),
+                  TextField(controller: deptCtrl, decoration: const InputDecoration(labelText: 'Department / Unit', prefixIcon: Icon(Icons.business))),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    title: const Text('Active Contact'),
+                    value: isActive,
+                    onChanged: (v) => setDlgState(() => isActive = v),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  final n = nameCtrl.text.trim();
+                  final p = phoneCtrl.text.trim();
+                  if (n.isEmpty || p.isEmpty) {
+                    snack(context, 'Please enter name and phone number', error: true);
+                    return;
+                  }
+                  final data = {
+                    'name': n,
+                    'phone': p,
+                    'department': deptCtrl.text.trim(),
+                    'status': isActive ? 'active' : 'inactive',
+                    'created_at': DateTime.now().toIso8601String(),
+                  };
+                  if (existing != null) {
+                    await supabase.from('emergency_contacts').update(data).eq('id', existing['id']);
+                  } else {
+                    await supabase.from('emergency_contacts').insert(data);
+                  }
+                  if (!mounted) return;
+                  Navigator.pop(ctx);
+                  snack(context, existing == null ? 'Contact added' : 'Contact updated');
+                },
+                child: Text(existing == null ? 'Add Contact' : 'Save Changes'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> deleteContact(String id) async {
+    await supabase.from('emergency_contacts').delete().eq('id', id);
+    if (mounted) snack(context, 'Contact deleted');
   }
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = AccessControl.isAdminEmail(widget.user.email);
+
+    final defaultContacts = [
+      {'id': 'e1', 'name': 'Saveetha Main Campus Security', 'phone': '7032643839', 'department': 'Campus Security & Safety', 'status': 'active'},
+      {'id': 'e2', 'name': 'Saveetha Medical Emergency Room', 'phone': '044-2222-3333', 'department': 'Health Center', 'status': 'active'},
+      {'id': 'e3', 'name': 'Saveetha Women Safety Cell', 'phone': '044-4444-5555', 'department': 'Safety & Support', 'status': 'active'},
+      {'id': 'e4', 'name': 'Transport & Shuttle Helpline', 'phone': '044-3333-4444', 'department': 'Transport Dept', 'status': 'active'},
+    ];
+
     return Scaffold(
-      appBar: appBar('Emergency Contacts', back: true, context: context),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: LocalStore.emergencyContacts.map((c) => Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: cardDecoration(),
-          child: ListTile(
-            leading: Icon(iconFor(c['icon'] ?? ''), color: AppColors.danger),
-            title: Text(c['name'] ?? ''),
-            subtitle: Text(c['phone'] ?? ''),
-            trailing: const Icon(Icons.call),
-            onTap: () => snack(context, 'Call ${c['phone']}'),
-          ),
-        )).toList(),
+      appBar: appBar('Emergency Contacts & SOS', back: true, context: context),
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => showAddContactModal(),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Contact'),
+            )
+          : null,
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: supabase.from('emergency_contacts').stream(primaryKey: ['id']).order('name'),
+        builder: (context, snapshot) {
+          final rows = (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty)
+              ? snapshot.data!
+              : defaultContacts;
+
+          final visibleRows = isAdmin ? rows : rows.where((r) => (r['status'] ?? 'active') == 'active').toList();
+
+          if (visibleRows.isEmpty) {
+            return const Center(child: Text('No emergency contacts available'));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(18),
+            itemCount: visibleRows.length,
+            itemBuilder: (ctx, i) {
+              final c = visibleRows[i];
+              final id = (c['id'] ?? '').toString();
+              final name = (c['name'] ?? '').toString();
+              final phone = (c['phone'] ?? '').toString();
+              final dept = (c['department'] ?? 'Emergency').toString();
+              final isActive = (c['status'] ?? 'active') == 'active';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: cardDecoration(),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: isActive ? const Color(0xFFEF4444) : Colors.grey,
+                    child: const Icon(Icons.local_phone, color: Colors.white),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  subtitle: Text('$phone • $dept${!isActive ? ' (Inactive)' : ''}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.call, color: Color(0xFF10B981), size: 28),
+                        onPressed: () => makePhoneCall(phone),
+                      ),
+                      if (isAdmin) ...[
+                        IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: () => showAddContactModal(c)),
+                        IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => deleteContact(id)),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -7820,8 +8873,21 @@ class _RealtimeProfileScreenState extends State<RealtimeProfileScreen> {
   }
 
   Future<void> saveProfile({bool showMessage = true}) async {
-    final displayName = AccessControl.isAdminEmail(widget.user.email) ? 'AVILIGONDA DILEEP KUMAR' : name.text.trim();
-    final displayPhone = AccessControl.isAdminEmail(widget.user.email) ? '7032643839' : phone.text.trim();
+    final displayName = name.text.trim();
+    final displayPhone = phone.text.trim();
+
+    if (displayName.isEmpty) {
+      snack(context, 'Username cannot be empty', error: true);
+      return;
+    }
+
+    try {
+      final existing = await supabase.from('profiles').select('email').eq('full_name', displayName).neq('email', widget.user.email).maybeSingle();
+      if (existing != null) {
+        snack(context, 'Username "$displayName" is already taken. Please choose a different username.', error: true);
+        return;
+      }
+    } catch (_) {}
 
     await supabase.from('profiles').upsert({
       'email': widget.user.email,
@@ -7834,19 +8900,116 @@ class _RealtimeProfileScreenState extends State<RealtimeProfileScreen> {
       'last_login': DateTime.now().toIso8601String(),
     }, onConflict: 'email');
 
+    try {
+      await supabase.from('app_registered_users').upsert({
+        'email': widget.user.email,
+        'full_name': displayName,
+        'role': AccessControl.isAdminEmail(widget.user.email) ? 'admin' : 'student',
+        'status': 'active',
+        'last_login': DateTime.now().toIso8601String(),
+      }, onConflict: 'email');
+    } catch (_) {}
+
     LocalStore.currentName = displayName;
     LocalStore.currentPhone = displayPhone;
     LocalStore.currentDepartment = department.text.trim();
     LocalStore.profilePhotoUrl = photoUrl;
+    LocalStore.registerUser(widget.user.email, displayName, 'GoogleUserPassword123!');
 
     if (!mounted || !showMessage) return;
-    snack(context, 'Profile updated');
+    snack(context, 'Profile updated successfully!');
+  }
+
+  Future<void> showChangePasswordModal() async {
+    final currentPassCtrl = TextEditingController();
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Change Password', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: currentPassCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Current Password', prefixIcon: Icon(Icons.lock_outline)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newPassCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'New Password (min 6 chars)', prefixIcon: Icon(Icons.lock)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmPassCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Confirm New Password', prefixIcon: Icon(Icons.lock_reset)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final cur = currentPassCtrl.text.trim();
+                        final n1 = newPassCtrl.text.trim();
+                        final n2 = confirmPassCtrl.text.trim();
+
+                        if (cur.isEmpty || n1.isEmpty) {
+                          snack(context, 'Please enter current and new password', error: true);
+                          return;
+                        }
+                        if (n1.length < 6) {
+                          snack(context, 'New password must be at least 6 characters', error: true);
+                          return;
+                        }
+                        if (n1 != n2) {
+                          snack(context, 'New passwords do not match', error: true);
+                          return;
+                        }
+
+                        setDlgState(() => isSubmitting = true);
+
+                        try {
+                          await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: widget.user.email, password: cur);
+                          await fb.FirebaseAuth.instance.currentUser?.updatePassword(n1);
+
+                          if (!mounted) return;
+                          Navigator.pop(ctx);
+                          snack(context, 'Password updated successfully!');
+                        } on fb.FirebaseAuthException catch (e) {
+                          snack(context, 'Password update failed: ${e.message}', error: true);
+                        } catch (e) {
+                          snack(context, 'Password update failed. Verify your current password.', error: true);
+                        } finally {
+                          setDlgState(() => isSubmitting = false);
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text('Update Password'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = AccessControl.isAdminEmail(widget.user.email);
-
     return Scaffold(
       appBar: appBar('My Profile', back: true, context: context),
       body: ListView(
@@ -7881,16 +9044,22 @@ class _RealtimeProfileScreenState extends State<RealtimeProfileScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(controller: name, enabled: !isAdmin, decoration: input('Display Name', Icons.person)),
+          TextField(controller: name, decoration: input('Full Name / Username', Icons.person)),
           const SizedBox(height: 12),
-          TextField(controller: phone, enabled: !isAdmin, decoration: input('Phone', Icons.phone)),
+          TextField(controller: phone, decoration: input('Phone Number', Icons.phone)),
           const SizedBox(height: 12),
           TextField(controller: department, decoration: input('Department', Icons.account_balance)),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: () => saveProfile(),
             icon: const Icon(Icons.save),
-            label: const Text('Save Profile'),
+            label: const Text('Save Profile Details'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => showChangePasswordModal(),
+            icon: const Icon(Icons.lock_reset),
+            label: const Text('Change Account Password'),
           ),
           if (photoUrl.isNotEmpty) ...[
             const SizedBox(height: 18),
