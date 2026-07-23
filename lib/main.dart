@@ -4691,8 +4691,6 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            infoBox('Live mode: grievance is saved to Supabase. Image preview is local only.'),
-            const SizedBox(height: 16),
             TextField(controller: title, decoration: input('Grievance title', Icons.title)),
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
