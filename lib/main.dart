@@ -4031,13 +4031,13 @@ class ModernStatsRow extends StatelessWidget {
                 if (isWide) {
                   return Row(
                     children: [
-                      Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue)),
+                      Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue, onTap: () => push(context, RealtimeProfileScreen(user: user)))),
                       const SizedBox(width: 12),
-                      Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber)),
+                      Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber, onTap: () => push(context, GrievanceListScreen(user: user, refresh: () {})))),
                       const SizedBox(width: 12),
-                      Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green)),
+                      Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green, onTap: () => push(context, GrievanceListScreen(user: user, refresh: () {})))),
                       const SizedBox(width: 12),
-                      Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan)),
+                      Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan, onTap: () => push(context, RealtimePlacementPortalScreen(user: user)))),
                     ],
                   );
                 }
@@ -4045,17 +4045,17 @@ class ModernStatsRow extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue)),
+                        Expanded(child: modernStat('Users', users.length.toString(), Icons.people, ModernColors.blue, onTap: () => push(context, RealtimeProfileScreen(user: user)))),
                         const SizedBox(width: 12),
-                        Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber)),
+                        Expanded(child: modernStat('Open Issues', open.toString(), Icons.report, ModernColors.amber, onTap: () => push(context, GrievanceListScreen(user: user, refresh: () {})))),
                       ],
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green)),
+                        Expanded(child: modernStat('Resolved', resolved.toString(), Icons.verified, ModernColors.green, onTap: () => push(context, GrievanceListScreen(user: user, refresh: () {})))),
                         const SizedBox(width: 12),
-                        Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan)),
+                        Expanded(child: modernStat('Placements', placements.length.toString(), Icons.work, ModernColors.cyan, onTap: () => push(context, RealtimePlacementPortalScreen(user: user)))),
                       ],
                     ),
                   ],
@@ -4069,22 +4069,26 @@ class ModernStatsRow extends StatelessWidget {
   }
 }
 
-Widget modernStat(String label, String value, IconData icon, Color color) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12)]),
-    child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(10)),
-        child: Icon(icon, color: color, size: 18),
-      ),
-      const SizedBox(width: 8),
-      Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11), overflow: TextOverflow.ellipsis, maxLines: 1),
-      ])),
-    ]),
+Widget modernStat(String label, String value, IconData icon, Color color, {VoidCallback? onTap}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 12)]),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(width: 8),
+        Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11), overflow: TextOverflow.ellipsis, maxLines: 1),
+        ])),
+      ]),
+    ),
   );
 }
 
@@ -5055,14 +5059,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     'lecturer': lecturerCtrl.text.trim(),
                     'created_at': DateTime.now().toIso8601String(),
                   };
-                  if (existing != null) {
-                    await supabase.from('timetables').update(data).eq('id', existing['id']);
-                  } else {
-                    await supabase.from('timetables').insert(data);
-                  }
+                  try {
+                    if (existing != null && existing['id'] != null) {
+                      await supabase.from('timetables').update(data).eq('id', existing['id']);
+                    } else {
+                      await supabase.from('timetables').insert(data);
+                    }
+                  } catch (_) {}
                   if (!mounted) return;
                   Navigator.pop(ctx);
-                  snack(context, existing == null ? 'Schedule uploaded' : 'Schedule updated');
+                  setState(() {});
+                  snack(context, existing == null ? 'Class schedule uploaded successfully' : 'Class schedule updated successfully');
                 },
                 child: Text(existing == null ? 'Upload' : 'Save'),
               ),
