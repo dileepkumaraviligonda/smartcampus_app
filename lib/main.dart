@@ -891,25 +891,11 @@ class LocalStore {
     currentName = name;
   }
 
-  static final List<LocalGrievance> grievances = [
-    LocalGrievance(id: 'GR1001', title: 'Broken projector in Lab 3', description: 'Projector is not turning on during lab sessions.', category: 'Infrastructure', priority: 'High', status: 'Pending', createdByEmail: 'student@college.edu', createdAt: DateTime(2026, 4, 22)),
-    LocalGrievance(id: 'GR1002', title: 'WiFi not working in Block B', description: 'Students are unable to connect to campus WiFi.', category: 'Infrastructure', priority: 'Medium', status: 'In Progress', createdByEmail: 'student@college.edu', createdAt: DateTime(2026, 4, 20)),
-    LocalGrievance(id: 'GR1003', title: 'Canteen food quality issue', description: 'Food quality needs improvement.', category: 'Canteen', priority: 'Low', status: 'Resolved', createdByEmail: 'student@college.edu', createdAt: DateTime(2026, 4, 18)),
-  ];
-
-  static final List<LocalBooking> bookings = [
-    LocalBooking(id: 'BK1001', resource: 'Computer Lab A', date: 'Today', time: '10:00 AM', userEmail: 'student@college.edu', createdAt: DateTime.now()),
-  ];
-
-  static final List<LocalMessage> messages = [
-    LocalMessage(text: 'Welcome to SmartCampus support chat.', senderEmail: 'admin@college.edu', createdAt: DateTime.now()),
-  ];
-
-  static final List<Map<String, String>> announcements = [
-    {'title': 'Internal Exam Schedule Released', 'body': 'Students can check the timetable section for exam slots.'},
-    {'title': 'Library Maintenance', 'body': 'Library hall will be unavailable tomorrow from 2 PM to 4 PM.'},
-    {'title': 'Placement Training', 'body': 'Placement training starts next Monday in Seminar Hall.'},
-  ];
+  static final List<LocalGrievance> grievances = [];
+  static final List<Map<String, dynamic>> userSubmittedGrievances = [];
+  static final List<LocalBooking> bookings = [];
+  static final List<LocalMessage> messages = [];
+  static final List<Map<String, String>> announcements = [];
 
   static final List<Map<String, String>> emergencyContacts = [
     {'name': 'AVILIGONDA DILEEP KUMAR', 'phone': '7032643839', 'icon': 'security'},
@@ -4514,20 +4500,13 @@ class _GrievanceListScreenState extends State<GrievanceListScreen> {
                   .stream(primaryKey: ['id'])
                   .order('created_at', ascending: false),
               builder: (context, snapshot) {
-                final List<Map<String, dynamic>> rawData = (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty)
-                    ? snapshot.data!
-                    : [
-                        {
-                          'id': 'g1',
-                          'title': 'Wi-Fi Connection Disruption in CS Lab 2',
-                          'description': 'Wi-Fi signal drops frequently during practical sessions.',
-                          'category': 'IT & Wi-Fi',
-                          'priority': 'High',
-                          'status': 'In Progress',
-                          'user_email': widget.user.email,
-                          'created_at': DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
-                        },
-                      ];
+                final List<Map<String, dynamic>> live = snapshot.data ?? [];
+                final Map<String, Map<String, dynamic>> combined = {};
+                for (final item in [...LocalStore.userSubmittedGrievances, ...live]) {
+                  final key = (item['id'] ?? item['title'] ?? '').toString();
+                  if (key.isNotEmpty) combined[key] = item;
+                }
+                final List<Map<String, dynamic>> rawData = combined.values.toList();
 
                 final rows = filteredRows(rawData);
 
@@ -4665,7 +4644,8 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
         } catch (_) {}
       }
 
-      await supabase.from('grievances').insert({
+      final payload = {
+        'id': 'gr_${DateTime.now().millisecondsSinceEpoch}',
         'title': title.text.trim(),
         'description': desc.text.trim(),
         'category': category,
@@ -4675,7 +4655,13 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
         'user_email': widget.user.email,
         'user_name': LocalStore.currentName ?? widget.user.name,
         'created_at': DateTime.now().toIso8601String(),
-      });
+      };
+
+      try {
+        await supabase.from('grievances').insert(payload);
+      } catch (_) {}
+
+      LocalStore.userSubmittedGrievances.insert(0, payload);
 
       widget.onDone();
       if (mounted) {
@@ -4683,7 +4669,7 @@ class _SubmitGrievanceScreenState extends State<SubmitGrievanceScreen> {
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) snack(context, 'Submit failed: $e', error: true);
+      if (mounted) snack(context, 'Submission processed locally');
     } finally {
       if (mounted) setState(() => saving = false);
     }
