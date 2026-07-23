@@ -3974,42 +3974,41 @@ PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
       ),
     ),
     title: Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 34,
-          height: 34,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             gradient: const LinearGradient(colors: [ModernColors.blue, ModernColors.cyan]),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.school, color: Colors.white, size: 20),
+          child: const Icon(Icons.school, color: Colors.white, size: 18),
         ),
-        const SizedBox(width: 10),
-        const Text('SmartCampus', style: TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(width: 8),
+        const Flexible(child: Text('SmartCampus', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16), overflow: TextOverflow.ellipsis)),
       ],
     ),
     actions: [
       IconButton(onPressed: () => push(context, PowerNotificationsScreen(user: user)), icon: const Icon(Icons.notifications_none)),
-      if (MediaQuery.of(context).size.width > 600)
+      if (MediaQuery.of(context).size.width > 600) ...[
         IconButton(onPressed: () => push(context, SmartCampusChatbotScreen(user: user)), icon: const Icon(Icons.smart_toy_outlined)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: supabase.from('profiles').stream(primaryKey: ['id']).eq('email', user.email),
-        builder: (_, snapshot) {
-          String photo = LocalStore.profilePhotoUrl;
-          String name = AccessControl.isAdminEmail(user.email) ? 'AVILIGONDA DILEEP KUMAR' : user.name;
-          if (snapshot.hasData && (snapshot.data ?? []).isNotEmpty) {
-            final row = snapshot.data!.first;
-            photo = (row['photo_url'] ?? photo).toString();
-            name = (row['full_name'] ?? name).toString();
-          }
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-          );
-        },
-      ),
-      if (MediaQuery.of(context).size.width > 600)
-        IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: supabase.from('profiles').stream(primaryKey: ['id']).eq('email', user.email),
+          builder: (_, snapshot) {
+            String name = AccessControl.isAdminEmail(user.email) ? 'AVILIGONDA DILEEP KUMAR' : user.name;
+            if (snapshot.hasData && (snapshot.data ?? []).isNotEmpty) {
+              final row = snapshot.data!.first;
+              name = (row['full_name'] ?? name).toString();
+            }
+            return Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+            );
+          },
+        ),
+        IconButton(icon: const Icon(Icons.logout), onPressed: () => fb.FirebaseAuth.instance.signOut()),
+      ],
     ],
   );
 }
