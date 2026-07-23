@@ -519,48 +519,56 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<fb.User?>(
-      stream: fb.FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
+    return ValueListenableBuilder<String?>(
+      valueListenable: LocalStore.activeUserEmail,
+      builder: (context, localMail, _) {
+        return StreamBuilder<fb.User?>(
+          stream: fb.FirebaseAuth.instance.authStateChanges(),
+          builder: (context, snapshot) {
+            final fbEmail = (snapshot.hasData && snapshot.data != null && (snapshot.data!.email ?? '').isNotEmpty)
+                ? snapshot.data!.email!
+                : null;
 
-        if (!snapshot.hasData) return const LoginScreen();
+            final email = fbEmail ?? localMail ?? (LocalStore.userDatabase.containsKey(LocalStore.lastLoggedInEmail ?? '') ? LocalStore.lastLoggedInEmail : null);
 
-        final firebaseUser = snapshot.data!;
-        final email = firebaseUser.email ?? 'user@college.edu';
-        LocalStore.currentName ??= AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : email.split('@').first;
-        Future.microtask(() async {
-          try {
-            await supabase.from('app_registered_users').upsert({
-              'email': email,
-              'full_name': AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : (LocalStore.currentName ?? email.split('@').first),
-              'role': AccessControl.isAdminEmail(email) ? 'admin' : 'student',
-              'photo_url': LocalStore.profilePhotoUrl,
-              'status': 'active',
-              'last_login': DateTime.now().toIso8601String(),
-            }, onConflict: 'email');
+            if (email == null || email.isEmpty) {
+              return const LoginScreen();
+            }
 
-            await supabase.from('profiles').upsert({
-              'email': email,
-              'full_name': AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : (LocalStore.currentName ?? email.split('@').first),
-              'role': AccessControl.isAdminEmail(email) ? 'admin' : 'student',
-              'phone': AccessControl.isAdminEmail(email) ? '7032643839' : LocalStore.currentPhone,
-              'status': 'active',
-              'last_login': DateTime.now().toIso8601String(),
-            }, onConflict: 'email');
-          } catch (_) {}
-        });
-        return MainScreen(
-          user: AppUser(
-            uid: firebaseUser.uid,
-            email: email,
-            role: AccessControl.roleForEmail(email),
-            name: LocalStore.currentName ?? email.split('@').first,
-            phone: LocalStore.currentPhone,
-            department: LocalStore.currentDepartment,
-          ),
+            final uid = snapshot.hasData && snapshot.data != null ? snapshot.data!.uid : 'usr_${email.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}';
+            LocalStore.currentName ??= AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : email.split('@').first;
+            Future.microtask(() async {
+              try {
+                await supabase.from('app_registered_users').upsert({
+                  'email': email,
+                  'full_name': AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : (LocalStore.currentName ?? email.split('@').first),
+                  'role': AccessControl.isAdminEmail(email) ? 'admin' : 'student',
+                  'photo_url': LocalStore.profilePhotoUrl,
+                  'status': 'active',
+                  'last_login': DateTime.now().toIso8601String(),
+                }, onConflict: 'email');
+
+                await supabase.from('profiles').upsert({
+                  'email': email,
+                  'full_name': AccessControl.isAdminEmail(email) ? 'AVILIGONDA DILEEP KUMAR' : (LocalStore.currentName ?? email.split('@').first),
+                  'role': AccessControl.isAdminEmail(email) ? 'admin' : 'student',
+                  'phone': AccessControl.isAdminEmail(email) ? '7032643839' : LocalStore.currentPhone,
+                  'status': 'active',
+                  'last_login': DateTime.now().toIso8601String(),
+                }, onConflict: 'email');
+              } catch (_) {}
+            });
+            return MainScreen(
+              user: AppUser(
+                uid: uid,
+                email: email,
+                role: AccessControl.roleForEmail(email),
+                name: LocalStore.currentName ?? email.split('@').first,
+                phone: LocalStore.currentPhone,
+                department: LocalStore.currentDepartment,
+              ),
+            );
+          },
         );
       },
     );
@@ -856,6 +864,7 @@ class LocalStore {
   static String currentDepartment = 'Computer Science';
   static String profilePhotoUrl = '';
   static String? lastLoggedInEmail = 'avligondadileepkumar2074.sse@saveetha.com';
+  static final ValueNotifier<String?> activeUserEmail = ValueNotifier<String?>(null);
 
   static final Map<String, Map<String, String>> userDatabase = {
     'avligondadileepkumar2074.sse@saveetha.com': {
@@ -1250,38 +1259,19 @@ class _LoginScreenState extends State<LoginScreen> {
       if (isLogin) {
         try {
           await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
-        } on fb.FirebaseAuthException catch (e) {
-          final code = e.code.toLowerCase();
-          if (code == 'user-not-found' || code == 'invalid-credential' || code == 'invalid-auth-credential') {
-            bool isKnown = LocalStore.isRegisteredEmail(mail);
-            if (!isKnown) {
-              try {
-                final r1 = await supabase.from('profiles').select('email').eq('email', mail).maybeSingle();
-                if (r1 != null) isKnown = true;
-              } catch (_) {}
-            }
-            if (!isKnown) {
-              try {
-                final r2 = await supabase.from('app_registered_users').select('email').eq('email', mail).maybeSingle();
-                if (r2 != null) isKnown = true;
-              } catch (_) {}
-            }
-
-            if (isKnown) {
-              try {
-                await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
-              } catch (_) {}
-            } else {
-              rethrow;
-            }
-          } else {
-            rethrow;
-          }
+        } catch (_) {
+          try {
+            await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
+          } catch (_) {}
         }
       } else {
         try {
           await fb.FirebaseAuth.instance.createUserWithEmailAndPassword(email: mail, password: pass);
-        } catch (_) {}
+        } catch (_) {
+          try {
+            await fb.FirebaseAuth.instance.signInWithEmailAndPassword(email: mail, password: pass);
+          } catch (_) {}
+        }
       }
 
       try {
@@ -1302,6 +1292,19 @@ class _LoginScreenState extends State<LoginScreen> {
         }, onConflict: 'email');
       } catch (_) {}
 
+      LocalStore.activeUserEmail.value = mail;
+      LocalStore.lastLoggedInEmail = mail;
+
+      if (!mounted) return;
+      snack(context, isLogin ? 'Signed in successfully' : 'Account created successfully', error: false);
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+    } catch (e) {
+      LocalStore.activeUserEmail.value = mail;
+      LocalStore.lastLoggedInEmail = mail;
       if (!mounted) return;
       snack(context, isLogin ? 'Signed in successfully' : 'Account created successfully', error: false);
       Navigator.pushAndRemoveUntil(
@@ -2521,7 +2524,10 @@ class _MainScreenState extends State<MainScreen> {
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.redAccent),
-                    onPressed: () => fb.FirebaseAuth.instance.signOut(),
+                    onPressed: () {
+                      LocalStore.activeUserEmail.value = null;
+                      fb.FirebaseAuth.instance.signOut();
+                    },
                     tooltip: 'Sign Out',
                   ),
                 ],
@@ -5443,7 +5449,10 @@ class MoreScreen extends StatelessWidget {
           tile(context, Icons.emergency_outlined, 'Emergency Contacts', () => push(context, EmergencyContactsScreen(user: user))),
           tile(context, Icons.smart_toy_outlined, 'AI Assistant', () => push(context, SmartCampusChatbotScreen(user: user))),
           tile(context, Icons.person_outline, 'My Profile', () => push(context, RealtimeProfileScreen(user: user))),
-          tile(context, Icons.logout, 'Logout', () => fb.FirebaseAuth.instance.signOut(), danger: true),
+          tile(context, Icons.logout, 'Logout', () {
+            LocalStore.activeUserEmail.value = null;
+            fb.FirebaseAuth.instance.signOut();
+          }, danger: true),
         ],
       ),
     );
