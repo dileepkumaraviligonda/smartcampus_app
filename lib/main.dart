@@ -2509,15 +2509,9 @@ class _MainScreenState extends State<MainScreen> {
                     onTap: () => setState(() => index = 3),
                     borderRadius: BorderRadius.circular(20),
                     child: Padding(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       child: Row(
                         children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: const Color(0xFF2563EB),
-                            child: Text(user.email[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                          ),
-                          const SizedBox(width: 8),
                           Text(user.name.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                           const SizedBox(width: 4),
                           const Icon(Icons.arrow_drop_down, color: Colors.grey),
@@ -2668,27 +2662,9 @@ PreferredSizeWidget portalTopBar(BuildContext context, String title, {required A
             }
           }
 
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: Colors.grey,
-                backgroundImage: photo.trim().isEmpty ? null : NetworkImage(photo.trim()),
-                child: photo.trim().isEmpty
-                    ? const Icon(Icons.person, color: Colors.white, size: 18)
-                    : null,
-              ),
-              if (MediaQuery.of(context).size.width > 600) ...[
-                const SizedBox(width: 8),
-                Center(
-                  child: Text(
-                    displayName.toUpperCase(),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ],
+          return Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: Text(displayName.toUpperCase(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
           );
         },
       ),
@@ -4028,19 +4004,7 @@ PreferredSizeWidget modernTopBar(BuildContext context, AppUser user) {
           }
           return Padding(
             padding: const EdgeInsets.only(right: 10),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundImage: photo.isEmpty ? null : NetworkImage(photo),
-                  child: photo.isEmpty ? const Icon(Icons.person, size: 18) : null,
-                ),
-                if (MediaQuery.of(context).size.width > 600) ...[
-                  const SizedBox(width: 8),
-                  Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                ],
-              ],
-            ),
+            child: Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
           );
         },
       ),
