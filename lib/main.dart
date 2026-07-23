@@ -106,7 +106,8 @@ class AccessControl {
   static const String adminEmail = 'avligondadileepkumar2074.sse@saveetha.com';
 
   static bool isCollegeEmail(String email) {
-    return email.trim().contains('@');
+    final clean = email.trim().toLowerCase();
+    return clean.endsWith('@gmail.com') || clean.endsWith('@saveetha.com') || clean == adminEmail;
   }
 
   static bool isAdminEmail(String email) {
@@ -1230,18 +1231,18 @@ class _LoginScreenState extends State<LoginScreen> {
     final name = fullName.text.trim();
 
     if (mail.isEmpty || pass.isEmpty) {
-      snack(context, 'Please enter email and password', error: true);
+      snack(context, 'Please enter Login ID (Gmail address) and Password', error: true);
       return;
     }
 
     if (!AccessControl.isCollegeEmail(mail)) {
-      snack(context, 'Please enter a valid email address', error: true);
+      snack(context, 'Only valid Gmail (@gmail.com) email addresses are allowed!', error: true);
       return;
     }
 
     if (!isLogin) {
       if (name.isEmpty) {
-        snack(context, 'Please enter your full name / username', error: true);
+        snack(context, 'Please enter your full name', error: true);
         return;
       }
       if (pass.length < 6) {
@@ -1252,6 +1253,20 @@ class _LoginScreenState extends State<LoginScreen> {
         snack(context, 'Passwords do not match. Please re-enter.', error: true);
         return;
       }
+
+      // Block Duplicate Emails on Sign Up
+      if (LocalStore.userDatabase.containsKey(mail)) {
+        snack(context, 'Account already exists with this Gmail address. Please Sign In instead.', error: true);
+        return;
+      }
+
+      try {
+        final res = await supabase.from('app_registered_users').select('email').eq('email', mail);
+        if (res != null && (res as List).isNotEmpty) {
+          snack(context, 'Account already exists with this Gmail address. Please Sign In instead.', error: true);
+          return;
+        }
+      } catch (_) {}
     }
 
     setState(() => loading = true);
@@ -2244,7 +2259,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
           Align(
             alignment: Alignment.centerLeft,
-            child: Text('Email', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
+            child: Text('Login ID (Gmail Address)', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 8),
           Semantics(
@@ -2253,7 +2268,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: TextField(
               controller: email,
               keyboardType: TextInputType.emailAddress,
-              decoration: modernInput('you@example.com', Icons.email_outlined),
+              decoration: modernInput('yourname@gmail.com', Icons.email_outlined),
             ),
           ),
           const SizedBox(height: 16),
@@ -2268,7 +2283,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: TextField(
               controller: password,
               obscureText: obscure,
-              decoration: modernInput('Password', Icons.lock_outline).copyWith(
+              decoration: modernInput('Enter Password', Icons.lock_outline).copyWith(
                 suffixIcon: IconButton(
                   icon: Icon(obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
                   onPressed: () => setState(() => obscure = !obscure),
@@ -2344,7 +2359,7 @@ class _LoginScreenState extends State<LoginScreen> {
               GestureDetector(
                 onTap: () => setState(() => isLogin = !isLogin),
                 child: Text(
-                  isLogin ? 'Create Account' : 'Sign In',
+                  isLogin ? 'Create Account / Sign Up' : 'Sign In',
                   style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.w900),
                 ),
               ),
@@ -2352,7 +2367,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Any valid email can login. Admin access is protected.',
+            'Only valid @gmail.com email addresses are allowed. Duplicate emails are prohibited.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.blueGrey, fontSize: 12),
           ),
